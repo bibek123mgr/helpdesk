@@ -1,0 +1,6 @@
+{
+  "version": 3,
+  "sources": [],
+  "sections": [
+    {"offset": {"line": 3, "column": 0}, "map": {"version":3,"sources":["file:///home/bibek/Desktop/helpdesk/messages/en.json.[json].cjs/turbopack:/messages/en.json"],"sourcesContent":["{\"nav\":{\"dashboard\":\"Dashboard\",\"tickets\":\"Tickets\",\"tags\":\"Tags\",\"team\":\"Team\",\"organization\":\"Organization\",\"allOrganizations\":\"All Organizations\",\"roles\":\"Roles\",\"logout\":\"Log out\"},\"login\":{\"title\":\"Log in\",\"subtitle\":\"Enter your workspace to continue.\",\"organization\":\"Organization\",\"selectOrg\":\"Select your organization\",\"email\":\"Email\",\"password\":\"Password\",\"submit\":\"Log in\",\"loading\":\"Logging in…\",\"noAccount\":\"Setting up a new organization?\",\"register\":\"Register here\"}}"],"names":[],"mappings":""}}]
+}

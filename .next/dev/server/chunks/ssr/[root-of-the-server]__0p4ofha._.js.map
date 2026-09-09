@@ -1,0 +1,6 @@
+{
+  "version": 3,
+  "sources": [],
+  "sections": [
+    {"offset": {"line": 10, "column": 0}, "map": {"version":3,"sources":["file:///home/bibek/Desktop/helpdesk/app/page.tsx"],"sourcesContent":["import React from 'react'\n\nconst page = () => {\n  return (\n    <div>HOME PAGE</div>\n  )\n}\n\nexport default page"],"names":["page"],"mappings":";;;;;;AAEA,MAAMA,OAAO;IACX,qBACE,8OAAC;kBAAI;;;;;;AAET;uCAEeA"}}]
+}

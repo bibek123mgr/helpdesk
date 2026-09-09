@@ -1,0 +1,245 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+model Organization {
+  id        Int      @id @default(autoincrement())
+  name      String?
+  slug      String   @unique
+  plan      String   @default("free")
+  timezone  String?
+  settings  Json?
+  createdAt DateTime @default(now())
+
+  users         User[]
+  roles         Role[]
+  teams         Team[]
+  tickets       Ticket[]
+  slaPolicies   SlaPolicy[]
+  tags          Tag[]
+  kbArticles    KbArticle[]
+  ticketIndexes TicketIndex[]
+  teamMembers   TeamMember[]
+}
+
+model Role {
+  id          Int      @id @default(autoincrement())
+  orgId       Int?
+  role        String   @default("user")
+  permissions Json?
+  createdAt   DateTime @default(now())
+
+  organization Organization? @relation(fields: [orgId], references: [id])
+  users        User[]
+}
+
+model User {
+  id          Int       @id @default(autoincrement())
+  orgId       Int
+  email       String    @unique
+  name        String?
+  password    String
+  roleId      Int
+  isActive    Boolean   @default(true)
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  organization Organization @relation(fields: [orgId], references: [id])
+  role         Role         @relation(fields: [roleId], references: [id])
+
+  teamMemberships  TeamMember[]
+  requestedTickets Ticket[]        @relation("TicketRequester")
+  assignedTickets  Ticket[]        @relation("TicketAssignee")
+  comments         Comment[]
+  historyChanges   TicketHistory[] @relation("HistoryChangedBy")
+  uploadedFiles    Attachment[]
+  notifications    Notification[]
+}
+
+model Team {
+  id          Int      @id @default(autoincrement())
+  orgId       Int
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+
+  organization Organization @relation(fields: [orgId], references: [id])
+  members      TeamMember[]
+  tickets      Ticket[]     @relation("TeamTickets")
+}
+
+model TeamMember {
+  teamId Int
+  userId Int
+  orgId  Int
+
+  team Team @relation(fields: [teamId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+  organization  Organization  @relation(fields: [orgId], references: [id])
+
+  @@id([teamId, userId])
+}
+
+model SlaPolicy {
+  id                  Int      @id @default(autoincrement())
+  orgId               Int
+  priority            String
+  responseTimeMinutes Int
+  resolveTimeMinutes  Int
+  createdAt           DateTime @default(now())
+
+  organization Organization @relation(fields: [orgId], references: [id])
+}
+
+model Ticket {
+  id           Int @id @default(autoincrement())
+  orgId        Int
+  ticketNumber Int
+
+  subject     String
+  description String  @db.Text
+  status      String  @default("open")
+  priority    String  @default("medium")
+  category    String?
+  channel     String?
+
+  requesterId Int
+  assigneeId  Int?
+  teamId      Int?
+
+  slaResponseDueAt DateTime?
+  slaResolveDueAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [orgId], references: [id])
+  requester    User         @relation("TicketRequester", fields: [requesterId], references: [id])
+  assignee     User?        @relation("TicketAssignee", fields: [assigneeId], references: [id])
+  team         Team?        @relation("TeamTickets", fields: [teamId], references: [id])
+
+  comments      Comment[]
+  history       TicketHistory[]
+  attachments   Attachment[]
+  tags          TicketTag[]
+  notifications Notification[]
+  csat          CsatResponse?
+
+  @@unique([orgId, ticketNumber])
+}
+
+model Comment {
+  id            Int      @id @default(autoincrement())
+  ticketId      Int
+  authorId      Int
+  body          String   @db.Text
+  isInternal    Boolean  @default(false)
+  isAiSuggested Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  ticket      Ticket       @relation(fields: [ticketId], references: [id])
+  author      User         @relation(fields: [authorId], references: [id])
+  attachments Attachment[]
+}
+
+model TicketHistory {
+  id           Int      @id @default(autoincrement())
+  ticketId     Int
+  fieldChanged String
+  oldValue     String?
+  newValue     String?
+  changedById  Int
+  createdAt    DateTime @default(now())
+
+  ticket    Ticket @relation(fields: [ticketId], references: [id])
+  changedBy User   @relation("HistoryChangedBy", fields: [changedById], references: [id])
+}
+
+model Attachment {
+  id           Int      @id @default(autoincrement())
+  ticketId     Int?
+  commentId    Int?
+  uploadedById Int
+  fileName     String
+  fileUrl      String
+  fileSize     Int
+  mimeType     String
+  createdAt    DateTime @default(now())
+
+  ticket     Ticket?  @relation(fields: [ticketId], references: [id])
+  comment    Comment? @relation(fields: [commentId], references: [id])
+  uploadedBy User     @relation(fields: [uploadedById], references: [id])
+}
+
+model Tag {
+  id    Int     @id @default(autoincrement())
+  orgId Int
+  name  String
+  color String?
+  createdAt DateTime @default(now())
+
+
+  organization Organization @relation(fields: [orgId], references: [id])
+  tickets      TicketTag[]
+
+  @@unique([orgId, name])
+}
+
+model TicketTag {
+  ticketId Int
+  tagId    Int
+
+  ticket Ticket @relation(fields: [ticketId], references: [id])
+  tag    Tag    @relation(fields: [tagId], references: [id])
+
+  @@id([ticketId, tagId])
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  ticketId  Int?
+  type      String
+  message   String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user   User    @relation(fields: [userId], references: [id])
+  ticket Ticket? @relation(fields: [ticketId], references: [id])
+}
+
+model CsatResponse {
+  id        Int      @id @default(autoincrement())
+  ticketId  Int      @unique
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
+
+  ticket Ticket @relation(fields: [ticketId], references: [id])
+}
+
+model KbArticle {
+  id        Int      @id @default(autoincrement())
+  orgId     Int
+  title     String
+  body      String   @db.Text
+  isPublic  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [orgId], references: [id])
+}
+
+model TicketIndex {
+  id           Int          @id @default(autoincrement())
+  orgId        Int          @unique
+  index        Int          @default(0)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  organization Organization @relation(fields: [orgId], references: [id])
+}

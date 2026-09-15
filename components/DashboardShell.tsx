@@ -11,17 +11,15 @@ import {
 import MenuIcon from '@mui/icons-material/Menu'
 import LogoutIcon from '@mui/icons-material/Logout'
 import DashboardIcon from '@mui/icons-material/SpaceDashboard'
-import NotificationsNoneIcon from '@mui/icons-material/NotificationsNone';
 import InboxIcon from '@mui/icons-material/Inbox'
 import GroupIcon from '@mui/icons-material/Group'
 import BusinessIcon from '@mui/icons-material/Business'
 import PublicIcon from '@mui/icons-material/Public'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
-import { moduleEnabled, PermissionMap } from '@/lib/permissions'
+import { moduleEnabled, ModuleName, PermissionMap } from '@/lib/permissions'
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
 import NotificationBox from './NotificationBox'
 import LabelIcon from '@mui/icons-material/Label'
-
 
 const DRAWER_WIDTH = 260
 
@@ -35,6 +33,14 @@ type CurrentUser = {
     orgId: number | null
     permissions: PermissionMap | null
   }
+}
+
+type NavItem = {
+  label: string
+  href: string
+  icon: typeof DashboardIcon
+  module: ModuleName | 'super_admin_only' | null
+  alwaysShow?: boolean
 }
 
 const roleLabel: Record<string, string> = {
@@ -59,22 +65,29 @@ export default function DashboardShell({ user, children }: { user: CurrentUser; 
 
   const isSuperAdmin = user.role.role === 'super_admin' && user.role.orgId === null
 
-  const NAV_ITEMS = [
-    { label: t('dashboard'), href: '/dashboard', icon: DashboardIcon, module: null },
-    { label: t('tickets'), href: '/dashboard/tickets', icon: InboxIcon, module: 'tickets' as const },
-    { label: t('tags'), href: '/dashboard/tags', icon: LabelIcon, module: 'tags' as const },
-    { label: t('team'), href: '/dashboard/team', icon: GroupIcon, module: 'team' as const },
-    { label: t('organization'), href: '/dashboard/organization', icon: BusinessIcon, module: 'organization' as const },
-    { label: t('allOrganizations'), href: '/dashboard/organizations', icon: PublicIcon, module: 'super_admin_only' as const },
-    { label: t('roles'), href: '/dashboard/roles', icon: AdminPanelSettingsIcon, module: 'roles' as const },
-
+  const NAV_ITEMS: NavItem[] = [
+    { label: t('dashboard'), href: '/dashboard', icon: DashboardIcon, module: null, alwaysShow: true },
+    { label: t('tickets'), href: '/dashboard/tickets', icon: InboxIcon, module: 'tickets' },
+    { label: t('tags'), href: '/dashboard/tags', icon: LabelIcon, module: 'tags' },
+    { label: t('team'), href: '/dashboard/team', icon: GroupIcon, module: 'team' },
+    // { label: t('organization'), href: '/dashboard/organization', icon: BusinessIcon, module: 'organization' },
+    { label: t('allOrganizations'), href: '/dashboard/organizations', icon: PublicIcon, module: 'super_admin_only' },
+    { label: t('roles'), href: '/dashboard/roles', icon: AdminPanelSettingsIcon, module: 'roles' },
   ]
 
+  const permissions = user.role?.permissions ?? null
+
+  const hasAnyPermission =
+    !!permissions &&
+    Object.values(permissions).some((m) =>
+      m ? Object.values(m).some(Boolean) : false
+    )
+
   const items = NAV_ITEMS.filter((item) => {
-    // if (item.module === null) return true
-    // if (item.module === 'super_admin_only') return isSuperAdmin
-    // return isSuperAdmin || moduleEnabled(user.role.permissions, item.module)
-    return true;
+    if (item.module === null) return true
+    if (item.module === 'super_admin_only') return isSuperAdmin
+    if (!hasAnyPermission) return item.alwaysShow === true
+    return moduleEnabled(permissions, item.module)
   })
 
   async function handleLogout() {
@@ -159,7 +172,6 @@ export default function DashboardShell({ user, children }: { user: CurrentUser; 
       >
         {drawerContent}
       </Drawer>
-      
 
       <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <AppBar position="sticky" elevation={0} sx={{ bgcolor: '#FFFFFF', color: '#14181F', borderBottom: '1px solid #E2E5EA' }}>
@@ -177,8 +189,8 @@ export default function DashboardShell({ user, children }: { user: CurrentUser; 
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
               <NotificationBox />
-            <LanguageSwitcher />
-              </Box>
+              <LanguageSwitcher />
+            </Box>
           </Toolbar>
         </AppBar>
 

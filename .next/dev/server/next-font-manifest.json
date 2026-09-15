@@ -1,10 +1,22 @@
 {
   "app": {
-    "[project]/app/(auth)/login/page": [
+    "[project]/app/dashboard/page": [
       "static/media/0c89a48fa5027cee-s.p.2cyn07wtgehh0.woff2",
       "static/media/83afe278b6a6bb3c-s.p.2bn3s6zvc0dyp.woff2"
     ],
-    "[project]/app/page": [
+    "[project]/app/dashboard/roles/page": [
+      "static/media/0c89a48fa5027cee-s.p.2cyn07wtgehh0.woff2",
+      "static/media/83afe278b6a6bb3c-s.p.2bn3s6zvc0dyp.woff2"
+    ],
+    "[project]/app/dashboard/tags/page": [
+      "static/media/0c89a48fa5027cee-s.p.2cyn07wtgehh0.woff2",
+      "static/media/83afe278b6a6bb3c-s.p.2bn3s6zvc0dyp.woff2"
+    ],
+    "[project]/app/dashboard/team/page": [
+      "static/media/0c89a48fa5027cee-s.p.2cyn07wtgehh0.woff2",
+      "static/media/83afe278b6a6bb3c-s.p.2bn3s6zvc0dyp.woff2"
+    ],
+    "[project]/app/dashboard/tickets/page": [
       "static/media/0c89a48fa5027cee-s.p.2cyn07wtgehh0.woff2",
       "static/media/83afe278b6a6bb3c-s.p.2bn3s6zvc0dyp.woff2"
     ]

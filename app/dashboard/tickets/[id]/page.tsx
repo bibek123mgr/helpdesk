@@ -34,6 +34,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  Autocomplete,
 } from '@mui/material'
 import {
   History as HistoryIcon,
@@ -76,6 +77,14 @@ type Team = {
   name: string
   description?: string
   members?: User[]
+}
+
+type Tag = {
+  id: number
+  orgId: number
+  name: string
+  color: string | null
+  createdAt: string
 }
 
 type Attachment = {
@@ -139,7 +148,7 @@ type Ticket = {
   slaResponseDueAt: string | null
   slaResolveDueAt: string | null
   isBookmarked: boolean
-  tags: string[]
+  tags: any[]            // may be string[] or TicketTag[] from API
   aiSuggestedSolutions?: string[]
   relatedKnowledgeBase?: Array<{
     id: string
@@ -188,6 +197,20 @@ const FIELD_LABEL: Record<string, string> = {
   subject: 'Subject',
   description: 'Description',
   tags: 'Tags',
+}
+
+const FALLBACK_TAG_COLOR = '#5A6272'
+
+function tagChipStyle(color: string | null | undefined) {
+  const c = color || FALLBACK_TAG_COLOR
+  return {
+    bgcolor: `${c}1A`,
+    color: c,
+    borderColor: `${c}55`,
+    fontSize: 11,
+    height: 22,
+    fontWeight: 500,
+  }
 }
 
 function formatTimeAgo(dateStr: string) {
@@ -244,6 +267,31 @@ function getChannelLabel(channel: string) {
   return channel.charAt(0).toUpperCase() + channel.slice(1)
 }
 
+// Normalise a ticket's tags into Tag[] regardless of shape:
+// - string[]                     → [{ id: -1, name: 'Bug', ... }]  (fallback)
+// - { ticketId, tagId, tag }[]  → [tag, tag, ...]
+// - Tag[]                       → [tag, tag, ...]
+function normaliseTicketTags(raw: any[] | undefined | null): Tag[] {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((entry, idx) => {
+      if (!entry) return null
+      if (typeof entry === 'string') {
+        return {
+          id: -(idx + 1),
+          orgId: 0,
+          name: entry,
+          color: null,
+          createdAt: '',
+        } as Tag
+      }
+      if (entry.tag && typeof entry.tag === 'object') return entry.tag as Tag
+      if (typeof entry.id === 'number' && typeof entry.name === 'string') return entry as Tag
+      return null
+    })
+    .filter((t): t is Tag => t !== null)
+}
+
 export default function TicketDetailPage() {
   const params = useParams()
   const router = useRouter()
@@ -251,6 +299,11 @@ export default function TicketDetailPage() {
   const [loading, setLoading] = useState(true)
   const [showHistory, setShowHistory] = useState(false)
   const [showAISuggestions, setShowAISuggestions] = useState(false)
+
+  // All org tags (for the picker)
+  const [allTags, setAllTags] = useState<Tag[]>([])
+  const [loadingTags, setLoadingTags] = useState(true)
+  const [savingTags, setSavingTags] = useState(false)
 
   const [replyBody, setReplyBody] = useState('')
   const [replyType, setReplyType] = useState<'public' | 'internal'>('public')
@@ -282,17 +335,25 @@ export default function TicketDetailPage() {
         return res.json()
       })
       .then((data) => {
+        const ticketTags = normaliseTicketTags(data.tags)
         setTicket({
           ...data,
           history: data.history || [],
           replies: data.comments || [],
           attachments: data.attachments || [],
-          tags: data.tags || [],
+          tags: ticketTags,
           aiSuggestedSolutions: data.aiSuggestedSolutions || [],
           relatedKnowledgeBase: data.relatedKnowledgeBase || [],
           channel: data.channel || 'email',
           status: data.status || 'open',
           priority: data.priority || 'medium',
+        })
+
+        // Merge ticket tags into allTags so they always render as chips
+        setAllTags((prev) => {
+          const map = new Map(prev.map((t) => [t.id, t]))
+          ticketTags.forEach((t) => map.set(t.id, t))
+          return Array.from(map.values())
         })
       })
       .catch((err) => {
@@ -302,8 +363,36 @@ export default function TicketDetailPage() {
       .finally(() => setLoading(false))
   }
 
+  // Load all org tags once
+  useEffect(() => {
+    let cancelled = false
+    setLoadingTags(true)
+    fetch('/api/tags')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled) return
+        if (Array.isArray(data)) {
+          setAllTags(data)
+        } else if (data && Array.isArray(data.tags)) {
+          setAllTags(data.tags)
+        } else {
+          console.warn('Unexpected /api/tags response:', data)
+          setAllTags([])
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to load tags:', err)
+        if (!cancelled) setAllTags([])
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingTags(false)
+      })
+    return () => { cancelled = true }
+  }, [])
+
   useEffect(() => {
     loadTicket()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params?.id])
 
   async function patchTicket(body: Record<string, unknown>, successMessage: string) {
@@ -322,6 +411,31 @@ export default function TicketDetailPage() {
       }
     } catch {
       setToast({ open: true, message: 'Could not update the ticket', severity: 'error' })
+    }
+  }
+
+  // Special handler for tags — sends `tagIds` (matches the list page's payload shape)
+  async function saveTags(nextTags: Tag[]) {
+    if (!ticket) return
+    setSavingTags(true)
+    // Optimistically update the UI
+    const previous = ticket.tags
+    setTicket({ ...ticket, tags: nextTags })
+    try {
+      const res = await fetch(`/api/tickets/${ticket.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tagIds: nextTags.map((t) => t.id) }),
+      })
+      if (!res.ok) throw new Error('Failed to update tags')
+      loadTicket()
+      setToast({ open: true, message: 'Tags updated', severity: 'success' })
+    } catch {
+      // Revert on failure
+      setTicket((cur) => (cur ? { ...cur, tags: previous } : cur))
+      setToast({ open: true, message: 'Could not update tags', severity: 'error' })
+    } finally {
+      setSavingTags(false)
     }
   }
 
@@ -414,6 +528,7 @@ export default function TicketDetailPage() {
   const safeHistory = ticket.history || []
   const safeReplies = ticket.replies || []
   const safeAttachments = ticket.attachments || []
+  const ticketTags: Tag[] = Array.isArray(ticket.tags) ? ticket.tags : []
 
   return (
     <Box sx={{ p: { xs: 2, md: 3 } }}>
@@ -448,8 +563,14 @@ export default function TicketDetailPage() {
             {ticket.category && (
               <Chip label={ticket.category} size="small" variant="outlined" sx={{ height: 20, fontSize: 11 }} />
             )}
-            {ticket.tags && ticket.tags.map((tag) => (
-              <Chip key={tag} label={tag} size="small" variant="outlined" sx={{ height: 20, fontSize: 10 }} />
+            {ticketTags.map((tag) => (
+              <Chip
+                key={`${tag.id}-${tag.name}`}
+                label={tag.name}
+                size="small"
+                variant="outlined"
+                sx={tagChipStyle(tag.color)}
+              />
             ))}
             {ticket.channel && CHANNEL_ICONS[ticket.channel] ? (
               <Chip
@@ -872,6 +993,68 @@ export default function TicketDetailPage() {
                 <MenuItem key={c} value={c}>{c}</MenuItem>
               ))}
             </Select>
+
+            <Divider sx={{ my: 2, borderColor: '#E2E5EA' }} />
+
+            {/* ---------- TAGS ---------- */}
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 500, textTransform: 'uppercase' }}>
+                Tags
+              </Typography>
+              {savingTags && (
+                <Typography variant="caption" color="text.secondary">Saving…</Typography>
+              )}
+            </Box>
+            <Autocomplete
+              multiple
+              size="small"
+              options={allTags}
+              getOptionLabel={(t) => t.name}
+              value={ticketTags}
+              onChange={(_, val) => saveTags(val as Tag[])}
+              isOptionEqualToValue={(a, b) => a.id === b.id}
+              loading={loadingTags}
+              renderOption={(props, option) => {
+                const { key, ...rest } = props as any
+                return (
+                  <li key={key} {...rest}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Box
+                        sx={{
+                          width: 10,
+                          height: 10,
+                          borderRadius: '50%',
+                          bgcolor: option.color || FALLBACK_TAG_COLOR,
+                        }}
+                      />
+                      <span>{option.name}</span>
+                    </Box>
+                  </li>
+                )
+              }}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  placeholder={ticketTags.length === 0 ? 'Add tags…' : ''}
+                />
+              )}
+              noOptionsText={loadingTags ? 'Loading tags…' : 'No tags defined'}
+              sx={{
+                '& .MuiChip-root': {
+                  bgcolor: '#5A62721A',
+                  color: '#5A6272',
+                  borderColor: '#5A627255',
+                  height: 22,
+                  fontSize: 11,
+                  fontWeight: 500,
+                },
+                '& .MuiChip-deleteIcon': {
+                  color: '#5A6272',
+                  fontSize: 14,
+                  '&:hover': { color: '#2F3A4A' },
+                },
+              }}
+            />
 
             <Divider sx={{ my: 2, borderColor: '#E2E5EA' }} />
 

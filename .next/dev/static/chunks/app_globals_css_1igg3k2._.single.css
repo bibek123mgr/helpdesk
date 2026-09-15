@@ -461,40 +461,6 @@
     z-index: 10;
   }
 
-  .container {
-    width: 100%;
-  }
-
-  @media (min-width: 40rem) {
-    .container {
-      max-width: 40rem;
-    }
-  }
-
-  @media (min-width: 48rem) {
-    .container {
-      max-width: 48rem;
-    }
-  }
-
-  @media (min-width: 64rem) {
-    .container {
-      max-width: 64rem;
-    }
-  }
-
-  @media (min-width: 80rem) {
-    .container {
-      max-width: 80rem;
-    }
-  }
-
-  @media (min-width: 96rem) {
-    .container {
-      max-width: 96rem;
-    }
-  }
-
   .mt-1\.5 {
     margin-top: calc(var(--spacing) * 1.5);
   }
@@ -802,6 +768,10 @@
 
   .capitalize {
     text-transform: capitalize;
+  }
+
+  .lowercase {
+    text-transform: lowercase;
   }
 
   .uppercase {

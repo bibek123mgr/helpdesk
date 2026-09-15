@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { getCurrentUser } from '@/lib/getCurrentUser'
 import DashboardShell from '@/components/DashboardShell'
+import { UserProvider } from '@/lib/user-context'
 import type { PermissionMap } from '@/lib/permissions'
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -10,7 +11,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
     redirect('/login')
   }
 
-  // Only pass what the client component actually needs — never the password hash
   const shellUser = {
     id: user.id,
     name: user.name,
@@ -23,5 +23,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
     },
   }
 
-  return <DashboardShell user={shellUser}>{children}</DashboardShell>
+  return (
+    <UserProvider user={shellUser}>
+      <DashboardShell user={shellUser}>{children}</DashboardShell>
+    </UserProvider>
+  )
 }

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { notificationPusher } from "@/lib/pusher";
 import { requirePermission } from "@/lib/requirePermission";
 import { NextResponse } from "next/server";
 
@@ -190,7 +191,7 @@ function parseId(raw: string): number | null {
 //     }
 
 //     return NextResponse.json(
-      
+
 //       { error: 'Error updating ticket' },
 //       { status: 500 }
 //     );
@@ -210,6 +211,11 @@ export async function GET(request: Request, context: Context) {
   const ticket = await prisma.ticket.findUnique({
     where: { id },
     include: {
+      tags: {
+        include: {
+          tag: true,
+        },
+      },
       comments: {
         select: {
           id: true,
@@ -247,14 +253,15 @@ export async function PATCH(request: Request, context: Context) {
     return NextResponse.json({ error: 'Invalid ticket id' }, { status: 400 });
   }
 
-  const { teamId, assigneeId, status, priority, category } = await request.json();
+  const { teamId, assigneeId, status, priority, category, tagIds } = await request.json();
 
   if (
     teamId === undefined &&
     assigneeId === undefined &&
     status === undefined &&
     priority === undefined &&
-    category === undefined
+    category === undefined &&
+    tagIds === undefined
   ) {
     return NextResponse.json({ error: 'At least one field is required' }, { status: 400 });
   }
@@ -265,6 +272,7 @@ export async function PATCH(request: Request, context: Context) {
     status?: string;
     priority?: string;
     category?: string;
+    tagIds?: number[];
   } = {};
 
   if (teamId !== undefined) {
@@ -329,6 +337,8 @@ export async function PATCH(request: Request, context: Context) {
             isRead: false,
           },
         });
+
+        await notificationPusher(`Ticket #${updatedTicket.ticketNumber} assigned to you.`);
       }
 
       // Only notify about status transitions when status was actually
@@ -344,6 +354,7 @@ export async function PATCH(request: Request, context: Context) {
               isRead: false,
             },
           });
+          await notificationPusher(`Your ticket #${updatedTicket.ticketNumber} is now in progress.`);
         } else if (
           (oldTicket.status === 'pending' ||
             oldTicket.status === 'resolved' ||
@@ -359,9 +370,26 @@ export async function PATCH(request: Request, context: Context) {
               isRead: false,
             },
           });
+          await notificationPusher(`Your ticket #${updatedTicket.ticketNumber} has been solved successfully.`);
         }
       }
 
+      if (tagIds !== undefined) {
+        const incomingTagIds = (tagIds as number[]).filter(
+          (id): id is number => typeof id === 'number'
+        )
+        const uniqueTagIds = Array.from(new Set(incomingTagIds))
+
+        if (uniqueTagIds.length > 0) {
+          await tx.ticketTag.createMany({
+            data: uniqueTagIds.map((tagId) => ({
+              ticketId: updatedTicket.id,
+              tagId,
+            })),
+            skipDuplicates: true,
+          })
+        }
+      }
       return updatedTicket;
     });
 

@@ -1,4 +1,4 @@
-export const MODULES = ['tickets', 'team', 'organization', 'roles', 'reports', 'notifications', 'tags'] as const
+export const MODULES = ['tickets','user', 'team', 'organization', 'roles', 'reports', 'notifications', 'tags'] as const
 export type ModuleName = (typeof MODULES)[number]
 
 export const ACTIONS = ['view', 'create', 'update', 'delete'] as const

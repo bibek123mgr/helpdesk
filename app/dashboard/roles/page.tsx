@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import {
   Box, Typography, Select, MenuItem, Table, TableBody, TableCell, TableHead, TableRow,
   Switch, Button, IconButton, Skeleton, Snackbar, Alert, TextField,
+  Dialog, DialogTitle, DialogContent, DialogActions,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import { MODULES, ACTIONS, PermissionMap, ModuleName, Action } from '@/lib/permissions'
@@ -15,6 +16,7 @@ const MODULE_LABEL: Record<ModuleName, string> = {
   tickets: 'Tickets',
   tags: 'Tags',
   team: 'Team',
+  user: 'User',
   organization: 'Organization',
   roles: 'Roles',
   notifications: 'Notifications',
@@ -38,8 +40,9 @@ export default function RolesPage() {
   const [toast, setToast] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
     open: false, message: '', severity: 'success',
   })
-  const [addingRole, setAddingRole] = useState(false)
+  const [dialogOpen, setDialogOpen] = useState(false)
   const [newRoleName, setNewRoleName] = useState('')
+  const [creating, setCreating] = useState(false)
 
   useEffect(() => {
     fetch('/api/roles')
@@ -93,20 +96,42 @@ export default function RolesPage() {
     }
   }
 
-  async function createRole() {
+  async function handleCreateRole() {
     if (!newRoleName.trim()) return
-    const res = await fetch('/api/roles', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role: newRoleName.trim() }),
-    })
-    if (res.ok) {
-      const created: Role = await res.json()
-      setRoles((prev) => [...prev, created])
-      selectRole(created.id)
+    
+    setCreating(true)
+    try {
+      const res = await fetch('/api/roles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: newRoleName.trim() }),
+      })
+      
+      if (res.ok) {
+        const created: Role = await res.json()
+        setRoles((prev) => [...prev, created])
+        selectRole(created.id)
+        setToast({ open: true, message: 'Role created successfully', severity: 'success' })
+        handleCloseDialog()
+      } else {
+        throw new Error('Failed to create role')
+      }
+    } catch {
+      setToast({ open: true, message: 'Could not create role', severity: 'error' })
+    } finally {
+      setCreating(false)
     }
+  }
+
+  function handleOpenDialog() {
     setNewRoleName('')
-    setAddingRole(false)
+    setDialogOpen(true)
+  }
+
+  function handleCloseDialog() {
+    setDialogOpen(false)
+    setNewRoleName('')
+    setCreating(false)
   }
 
   return (
@@ -135,27 +160,14 @@ export default function RolesPage() {
               ))}
             </Select>
 
-            {addingRole ? (
-              <>
-                <TextField
-                  size="small"
-                  autoFocus
-                  placeholder="role_name"
-                  value={newRoleName}
-                  onChange={(e) => setNewRoleName(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && createRole()}
-                  sx={{ width: 160 }}
-                />
-                <Button size="small" onClick={createRole} disabled={!newRoleName.trim()}>Add</Button>
-                <Button size="small" color="inherit" onClick={() => { setAddingRole(false); setNewRoleName('') }}>
-                  Cancel
-                </Button>
-              </>
-            ) : (
-              <Button size="small" startIcon={<AddIcon fontSize="small" />} onClick={() => setAddingRole(true)}>
-                New role
-              </Button>
-            )}
+            <Button 
+              size="small" 
+              startIcon={<AddIcon fontSize="small" />} 
+              onClick={handleOpenDialog}
+              variant="contained"
+            >
+              New role
+            </Button>
           </Box>
 
           {/* Permission matrix */}
@@ -201,6 +213,42 @@ export default function RolesPage() {
           </Box>
         </>
       )}
+
+      {/* Add Role Dialog */}
+      <Dialog 
+        open={dialogOpen} 
+        onClose={handleCloseDialog}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Create New Role</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            margin="dense"
+            label="Role Name"
+            placeholder="e.g., manager, support_lead"
+            fullWidth
+            value={newRoleName}
+            onChange={(e) => setNewRoleName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleCreateRole()}
+            disabled={creating}
+            helperText="Use lowercase and underscores for spaces"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseDialog} disabled={creating}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleCreateRole} 
+            variant="contained" 
+            disabled={!newRoleName.trim() || creating}
+          >
+            {creating ? 'Creating...' : 'Create Role'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Snackbar
         open={toast.open}

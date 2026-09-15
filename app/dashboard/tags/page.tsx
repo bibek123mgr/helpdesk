@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   Box, Typography, Paper, TextField, Button, Select, MenuItem,
   Autocomplete, ToggleButtonGroup, ToggleButton, Divider, Alert,
@@ -17,6 +18,8 @@ import MoreVertIcon from '@mui/icons-material/MoreVert'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 import { HexColorPicker, HexColorInput } from 'react-colorful'
+import { useUser } from '@/lib/user-context'
+import { moduleEnabled } from '@/lib/permissions'
 
 type Tag = {
   id: number
@@ -87,17 +90,25 @@ function ColorPicker({ color, onChange }: { color: string; onChange: (c: string)
 }
 
 export default function TagsPage() {
+  const router = useRouter()
+  const { can, user } = useUser()
+
+  const canView = can('tags', 'view')
+  const canCreate = can('tags', 'create')
+  const canUpdate = can('tags', 'update')
+  const canDelete = can('tags', 'delete')
+
+  const hasAnyTagsPermission = moduleEnabled(user.role.permissions, 'tags')
+
   const [tags, setTags] = useState<Tag[]>([])
   const [loadingTags, setLoadingTags] = useState(true)
 
-  // Create tag state
   const [createOpen, setCreateOpen] = useState(false)
   const [name, setName] = useState('')
   const [color, setColor] = useState('#2F5DE0')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
-  // Edit tag state
   const [editOpen, setEditOpen] = useState(false)
   const [editingTag, setEditingTag] = useState<Tag | null>(null)
   const [editName, setEditName] = useState('')
@@ -105,12 +116,10 @@ export default function TagsPage() {
   const [editSubmitting, setEditSubmitting] = useState(false)
   const [editError, setEditError] = useState('')
 
-  // Delete confirmation state
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deletingTag, setDeletingTag] = useState<Tag | null>(null)
   const [deleting, setDeleting] = useState(false)
 
-  // Stats
   const totalTags = tags.length
   const usedTags = tags.filter(t => (t.ticketCount || 0) > 0).length
 
@@ -126,9 +135,21 @@ export default function TagsPage() {
       .finally(() => setLoadingTags(false))
   }
 
+  // Redirect away if the user has zero tags permissions
   useEffect(() => {
+    if (!hasAnyTagsPermission) {
+      router.replace('/dashboard')
+    }
+  }, [hasAnyTagsPermission, router])
+
+  useEffect(() => {
+    if (!canView) {
+      setLoadingTags(false)
+      return
+    }
     loadTags()
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canView])
 
   function resetCreateForm() {
     setName('')
@@ -137,7 +158,7 @@ export default function TagsPage() {
   }
 
   async function handleCreateSubmit() {
-    if (!name.trim()) return
+    if (!name.trim() || !canCreate) return
     setSubmitting(true)
     setError('')
 
@@ -145,10 +166,7 @@ export default function TagsPage() {
       const res = await fetch('/api/tags', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: name.trim(),
-          color: color,
-        }),
+        body: JSON.stringify({ name: name.trim(), color }),
       })
 
       if (res.ok) {
@@ -159,7 +177,7 @@ export default function TagsPage() {
         const data = await res.json().catch(() => ({}))
         setError(data.error ?? 'Could not create the tag. Please try again.')
       }
-    } catch (err) {
+    } catch {
       setError('An error occurred. Please try again.')
     } finally {
       setSubmitting(false)
@@ -167,6 +185,7 @@ export default function TagsPage() {
   }
 
   function handleEditClick(tag: Tag) {
+    if (!canUpdate) return
     setEditingTag(tag)
     setEditName(tag.name)
     setEditColor(tag.color)
@@ -175,7 +194,7 @@ export default function TagsPage() {
   }
 
   async function handleEditSubmit() {
-    if (!editName.trim() || !editingTag) return
+    if (!editName.trim() || !editingTag || !canUpdate) return
     setEditSubmitting(true)
     setEditError('')
 
@@ -183,10 +202,7 @@ export default function TagsPage() {
       const res = await fetch(`/api/tags/${editingTag.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: editName.trim(),
-          color: editColor,
-        }),
+        body: JSON.stringify({ name: editName.trim(), color: editColor }),
       })
 
       if (res.ok) {
@@ -197,7 +213,7 @@ export default function TagsPage() {
         const data = await res.json().catch(() => ({}))
         setEditError(data.error ?? 'Could not update the tag. Please try again.')
       }
-    } catch (err) {
+    } catch {
       setEditError('An error occurred. Please try again.')
     } finally {
       setEditSubmitting(false)
@@ -205,33 +221,36 @@ export default function TagsPage() {
   }
 
   function handleDeleteClick(tag: Tag) {
+    if (!canDelete) return
     setDeletingTag(tag)
     setDeleteDialogOpen(true)
   }
 
   async function handleDeleteConfirm() {
-    if (!deletingTag) return
+    if (!deletingTag || !canDelete) return
     setDeleting(true)
 
     try {
-      const res = await fetch(`/api/tags/${deletingTag.id}`, {
-        method: 'DELETE',
-      })
+      const res = await fetch(`/api/tags/${deletingTag.id}`, { method: 'DELETE' })
 
       if (res.ok) {
         setDeleteDialogOpen(false)
         setDeletingTag(null)
         loadTags()
       } else {
-        // Show error feedback
         const data = await res.json().catch(() => ({}))
         alert(data.error ?? 'Could not delete the tag. Please try again.')
       }
-    } catch (err) {
+    } catch {
       alert('An error occurred. Please try again.')
     } finally {
       setDeleting(false)
     }
+  }
+
+  // If the user has no tags permission at all, render nothing while the redirect runs
+  if (!hasAnyTagsPermission) {
+    return null
   }
 
   return (
@@ -243,167 +262,126 @@ export default function TagsPage() {
             Manage and organize your support tags
           </Typography>
         </Box>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreateOpen(true)}>
-          New tag
-        </Button>
-      </Box>
-
-      {/* Quick stats */}
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr 1fr' }, gap: 2, mt: 3 }}>
-        {[
-          { label: 'Total Tags', value: totalTags, icon: LocalOfferIcon, color: '#2F5DE0' },
-          { label: 'Used Tags', value: usedTags, icon: DoneAllIcon, color: '#12B886' },
-          { label: 'Unused Tags', value: totalTags - usedTags, icon: TrendingUpIcon, color: '#E8A63A' },
-        ].map((s) => (
-          <Paper key={s.label} variant="outlined" sx={{ p: 2, borderColor: '#E2E5EA', display: 'flex', alignItems: 'center', gap: 1.5 }}>
-            <Box sx={{ width: 34, height: 34, borderRadius: 1.5, bgcolor: `${s.color}14`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <s.icon sx={{ fontSize: 18, color: s.color }} />
-            </Box>
-            <Box>
-              <Typography variant="h6" sx={{ lineHeight: 1.1 }}>{s.value}</Typography>
-              <Typography variant="caption" color="text.secondary">{s.label}</Typography>
-            </Box>
-          </Paper>
-        ))}
-      </Box>
-
-      {/* Tags Table */}
-      <Paper variant="outlined" sx={{ borderColor: '#E2E5EA', overflow: 'hidden', mt: 3 }}>
-        {loadingTags ? (
-          <Box sx={{ p: 2 }}>
-            {[1, 2, 3].map((i) => <Skeleton key={i} height={48} />)}
-          </Box>
-        ) : tags.length === 0 ? (
-          <Box sx={{ p: 5, textAlign: 'center' }}>
-            <Typography variant="body2" color="text.secondary">
-              No tags yet. Create your first tag to get started.
-            </Typography>
-          </Box>
-        ) : (
-          <Table>
-            <TableHead>
-              <TableRow sx={{ '& th': { color: 'text.secondary', fontSize: 13, fontWeight: 500, borderColor: '#E2E5EA' } }}>
-                <TableCell>Tag</TableCell>
-                <TableCell>Color</TableCell>
-                <TableCell>Usage</TableCell>
-                <TableCell>Created</TableCell>
-                <TableCell align="center">Actions</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {tags.map((tag) => (
-                <TableRow
-                  key={tag.id}
-                  hover
-                  sx={{ 
-                    '&:hover': {
-                      backgroundColor: 'action.hover',
-                    }
-                  }}
-                >
-                  <TableCell>
-                    <Chip
-                      label={tag.name}
-                      size="small"
-                      sx={{
-                        bgcolor: `${tag.color}1A`,
-                        color: tag.color,
-                        fontWeight: 500,
-                      }}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Box sx={{ width: 20, height: 20, borderRadius: '50%', bgcolor: tag.color, border: '1px solid rgba(0,0,0,0.1)' }} />
-                      <Typography variant="body2" sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
-                        {tag.color.toUpperCase()}
-                      </Typography>
-                    </Box>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2">
-                      {tag.ticketCount || 0} tickets
-                    </Typography>
-                  </TableCell>
-                  <TableCell sx={{ color: 'text.secondary', fontSize: 13 }}>
-                    {new Date(tag.createdAt).toLocaleDateString()}
-                  </TableCell>
-                  <TableCell align="center">
-                    <Box sx={{ display: 'flex', justifyContent: 'center', gap: 0.5 }}>
-                      <IconButton
-                        size="small"
-                        onClick={() => handleEditClick(tag)}
-                        sx={{ p: 0.5 }}
-                      >
-                        <EditIcon fontSize="small" />
-                      </IconButton>
-                      <IconButton
-                        size="small"
-                        onClick={() => handleDeleteClick(tag)}
-                        sx={{ p: 0.5, color: 'error.main' }}
-                      >
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </Box>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+        {canCreate && (
+          <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreateOpen(true)}>
+            New tag
+          </Button>
         )}
-      </Paper>
+      </Box>
+
+      {canView ? (
+        <>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr 1fr' }, gap: 2, mt: 3 }}>
+            {[
+              { label: 'Total Tags', value: totalTags, icon: LocalOfferIcon, color: '#2F5DE0' },
+              { label: 'Used Tags', value: usedTags, icon: DoneAllIcon, color: '#12B886' },
+              { label: 'Unused Tags', value: totalTags - usedTags, icon: TrendingUpIcon, color: '#E8A63A' },
+            ].map((s) => (
+              <Paper key={s.label} variant="outlined" sx={{ p: 2, borderColor: '#E2E5EA', display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                <Box sx={{ width: 34, height: 34, borderRadius: 1.5, bgcolor: `${s.color}14`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <s.icon sx={{ fontSize: 18, color: s.color }} />
+                </Box>
+                <Box>
+                  <Typography variant="h6" sx={{ lineHeight: 1.1 }}>{s.value}</Typography>
+                  <Typography variant="caption" color="text.secondary">{s.label}</Typography>
+                </Box>
+              </Paper>
+            ))}
+          </Box>
+
+          <Paper variant="outlined" sx={{ borderColor: '#E2E5EA', overflow: 'hidden', mt: 3 }}>
+            {loadingTags ? (
+              <Box sx={{ p: 2 }}>
+                {[1, 2, 3].map((i) => <Skeleton key={i} height={48} />)}
+              </Box>
+            ) : tags.length === 0 ? (
+              <Box sx={{ p: 5, textAlign: 'center' }}>
+                <Typography variant="body2" color="text.secondary">
+                  No tags yet. Create your first tag to get started.
+                </Typography>
+              </Box>
+            ) : (
+              <Table>
+                <TableHead>
+                  <TableRow sx={{ '& th': { color: 'text.secondary', fontSize: 13, fontWeight: 500, borderColor: '#E2E5EA' } }}>
+                    <TableCell>Tag</TableCell>
+                    <TableCell>Color</TableCell>
+                    <TableCell>Usage</TableCell>
+                    <TableCell>Created</TableCell>
+                    {(canUpdate || canDelete) && <TableCell align="center">Actions</TableCell>}
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {tags.map((tag) => (
+                    <TableRow key={tag.id} hover sx={{ '&:hover': { backgroundColor: 'action.hover' } }}>
+                      <TableCell>
+                        <Chip label={tag.name} size="small" sx={{ bgcolor: `${tag.color}1A`, color: tag.color, fontWeight: 500 }} />
+                      </TableCell>
+                      <TableCell>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Box sx={{ width: 20, height: 20, borderRadius: '50%', bgcolor: tag.color, border: '1px solid rgba(0,0,0,0.1)' }} />
+                          <Typography variant="body2" sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
+                            {tag.color.toUpperCase()}
+                          </Typography>
+                        </Box>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2">{tag.ticketCount || 0} tickets</Typography>
+                      </TableCell>
+                      <TableCell sx={{ color: 'text.secondary', fontSize: 13 }}>
+                        {new Date(tag.createdAt).toLocaleDateString()}
+                      </TableCell>
+                      {(canUpdate || canDelete) && (
+                        <TableCell align="center">
+                          <Box sx={{ display: 'flex', justifyContent: 'center', gap: 0.5 }}>
+                            {canUpdate && (
+                              <IconButton size="small" onClick={() => handleEditClick(tag)} sx={{ p: 0.5 }}>
+                                <EditIcon fontSize="small" />
+                              </IconButton>
+                            )}
+                            {canDelete && (
+                              <IconButton size="small" onClick={() => handleDeleteClick(tag)} sx={{ p: 0.5, color: 'error.main' }}>
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            )}
+                          </Box>
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </Paper>
+        </>
+      ) : (
+        <Box sx={{ p: 5, textAlign: 'center', mt: 3 }}>
+          <Typography variant="h6" color="text.secondary">
+            You don't have permission to view tags.
+          </Typography>
+        </Box>
+      )}
 
       {/* Create Tag Dialog */}
       <Dialog open={createOpen} onClose={() => { setCreateOpen(false); resetCreateForm() }} maxWidth="sm" fullWidth>
         <DialogTitle>Create new tag</DialogTitle>
         <DialogContent dividers sx={{ borderColor: '#E2E5EA' }}>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-            <TextField
-              label="Tag Name"
-              placeholder="Enter tag name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              fullWidth
-              autoFocus
-            />
-
+            <TextField label="Tag Name" placeholder="Enter tag name" value={name} onChange={(e) => setName(e.target.value)} fullWidth autoFocus />
             <Box>
-              <Typography variant="body2" sx={{ mb: 1, color: 'text.secondary' }}>
-                Tag Color
-              </Typography>
+              <Typography variant="body2" sx={{ mb: 1, color: 'text.secondary' }}>Tag Color</Typography>
               <ColorPicker color={color} onChange={setColor} />
             </Box>
-
             <Box>
-              <Typography variant="body2" sx={{ mb: 1, color: 'text.secondary' }}>
-                Preview
-              </Typography>
-              <Chip
-                label={name.trim() || 'tag-name'}
-                sx={{
-                  bgcolor: `${color}1A`,
-                  color: color,
-                  fontWeight: 500,
-                }}
-              />
+              <Typography variant="body2" sx={{ mb: 1, color: 'text.secondary' }}>Preview</Typography>
+              <Chip label={name.trim() || 'tag-name'} sx={{ bgcolor: `${color}1A`, color, fontWeight: 500 }} />
             </Box>
-
-            {error && (
-              <Alert severity="error" icon={<ErrorIcon fontSize="small" />}>
-                {error}
-              </Alert>
-            )}
+            {error && <Alert severity="error" icon={<ErrorIcon fontSize="small" />}>{error}</Alert>}
           </Box>
         </DialogContent>
         <DialogActions sx={{ px: 3, py: 2 }}>
-          <Button onClick={() => { setCreateOpen(false); resetCreateForm() }} color="inherit">
-            Cancel
-          </Button>
-          <Button
-            variant="contained"
-            onClick={handleCreateSubmit}
-            disabled={submitting || !name.trim()}
-          >
+          <Button onClick={() => { setCreateOpen(false); resetCreateForm() }} color="inherit">Cancel</Button>
+          <Button variant="contained" onClick={handleCreateSubmit} disabled={submitting || !name.trim()}>
             {submitting ? 'Creating...' : 'Create tag'}
           </Button>
         </DialogActions>
@@ -414,52 +392,21 @@ export default function TagsPage() {
         <DialogTitle>Edit tag</DialogTitle>
         <DialogContent dividers sx={{ borderColor: '#E2E5EA' }}>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-            <TextField
-              label="Tag Name"
-              placeholder="Enter tag name"
-              value={editName}
-              onChange={(e) => setEditName(e.target.value)}
-              fullWidth
-              autoFocus
-            />
-
+            <TextField label="Tag Name" placeholder="Enter tag name" value={editName} onChange={(e) => setEditName(e.target.value)} fullWidth autoFocus />
             <Box>
-              <Typography variant="body2" sx={{ mb: 1, color: 'text.secondary' }}>
-                Tag Color
-              </Typography>
+              <Typography variant="body2" sx={{ mb: 1, color: 'text.secondary' }}>Tag Color</Typography>
               <ColorPicker color={editColor} onChange={setEditColor} />
             </Box>
-
             <Box>
-              <Typography variant="body2" sx={{ mb: 1, color: 'text.secondary' }}>
-                Preview
-              </Typography>
-              <Chip
-                label={editName.trim() || 'tag-name'}
-                sx={{
-                  bgcolor: `${editColor}1A`,
-                  color: editColor,
-                  fontWeight: 500,
-                }}
-              />
+              <Typography variant="body2" sx={{ mb: 1, color: 'text.secondary' }}>Preview</Typography>
+              <Chip label={editName.trim() || 'tag-name'} sx={{ bgcolor: `${editColor}1A`, color: editColor, fontWeight: 500 }} />
             </Box>
-
-            {editError && (
-              <Alert severity="error" icon={<ErrorIcon fontSize="small" />}>
-                {editError}
-              </Alert>
-            )}
+            {editError && <Alert severity="error" icon={<ErrorIcon fontSize="small" />}>{editError}</Alert>}
           </Box>
         </DialogContent>
         <DialogActions sx={{ px: 3, py: 2 }}>
-          <Button onClick={() => { setEditOpen(false); setEditingTag(null) }} color="inherit">
-            Cancel
-          </Button>
-          <Button
-            variant="contained"
-            onClick={handleEditSubmit}
-            disabled={editSubmitting || !editName.trim()}
-          >
+          <Button onClick={() => { setEditOpen(false); setEditingTag(null) }} color="inherit">Cancel</Button>
+          <Button variant="contained" onClick={handleEditSubmit} disabled={editSubmitting || !editName.trim()}>
             {editSubmitting ? 'Saving...' : 'Save changes'}
           </Button>
         </DialogActions>
@@ -479,15 +426,8 @@ export default function TagsPage() {
           </Typography>
         </DialogContent>
         <DialogActions sx={{ px: 3, py: 2 }}>
-          <Button onClick={() => { setDeleteDialogOpen(false); setDeletingTag(null) }} color="inherit">
-            Cancel
-          </Button>
-          <Button
-            variant="contained"
-            color="error"
-            onClick={handleDeleteConfirm}
-            disabled={deleting}
-          >
+          <Button onClick={() => { setDeleteDialogOpen(false); setDeletingTag(null) }} color="inherit">Cancel</Button>
+          <Button variant="contained" color="error" onClick={handleDeleteConfirm} disabled={deleting}>
             {deleting ? 'Deleting...' : 'Delete'}
           </Button>
         </DialogActions>

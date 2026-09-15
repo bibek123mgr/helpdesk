@@ -72,18 +72,53 @@ export async function GET(request: Request) {
     whereClause.status = scope
   }
 
-  try {
-    const tickets = await prisma.ticket.findMany({
-      where: whereClause,
-      include: {
-        requester: { select: { id: true, name: true, email: true } },
-        assignee: { select: { id: true, name: true, email: true } },
-        team: { select: { id: true, name: true } },
-      },
-      orderBy: { updatedAt: 'desc' },
-    })
+  // Stats are org-wide — intentionally ignores the `scope` filter
+  const statsWhere = { orgId: requestUser.orgId }
 
-    return NextResponse.json({ tickets, isStaff: !!requestUser }, { status: 200 })
+  try {
+    const [tickets, statusGroups] = await Promise.all([
+      prisma.ticket.findMany({
+        where: whereClause,
+        include: {
+          tags: {
+            include: {
+              tag: true,
+            },
+          },
+          requester: { select: { id: true, name: true, email: true } },
+          assignee: { select: { id: true, name: true, email: true } },
+          team: { select: { id: true, name: true } },
+        },
+        orderBy: { updatedAt: 'desc' },
+      }),
+      prisma.ticket.groupBy({
+        by: ['status'],
+        where: statsWhere,
+        _count: { _all: true },
+      }),
+    ])
+
+    // Flatten groupBy result into a simple map
+    const counts: Record<string, number> = {}
+    let total = 0
+    for (const group of statusGroups) {
+      const count = group._count._all
+      counts[group.status] = count
+      total += count
+    }
+
+    const stats = {
+      total,
+      open: counts.open ?? 0,
+      pending: counts.pending ?? 0,
+      resolved: counts.resolved ?? 0,
+      closed: counts.closed ?? 0,
+    }
+
+    return NextResponse.json(
+      { tickets, stats, isStaff: !!requestUser },
+      { status: 200 }
+    )
   } catch (error) {
     console.error('Error fetching tickets:', error)
     return NextResponse.json({ error: 'Error fetching tickets' }, { status: 500 })

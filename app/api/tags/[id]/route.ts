@@ -22,7 +22,7 @@ export async function PATCH(request: Request, context: Context) {
 
         const tag = await prisma.tag.update({
             where: {
-                id,
+                id: Number(id),
             },
             data: {
                 name,

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import Pusher from 'pusher-js'
 import {
   Menu,
   MenuItem,
@@ -22,6 +23,16 @@ export default function NotificationBox() {
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null)
   const [isPending, startTransition] = useTransition()
+
+  const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
+    cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
+  })
+
+  const channel = pusher.subscribe('my-channel')
+  
+  channel.bind('notification', (data: { message: string }) => {
+    console.log('Received notification:', data.message)
+  })
 
   async function fetchNotifications() {
     try {

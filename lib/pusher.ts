@@ -1,0 +1,15 @@
+import Pusher from "pusher";
+
+export const globalPusher = new Pusher({
+        appId: process.env.NEXT_PUBLIC_PUSHER_APP_ID!,
+        key: process.env.NEXT_PUBLIC_PUSHER_KEY!,
+        secret: process.env.NEXT_PUBLIC_PUSHER_SECRET!,
+        cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
+        useTLS: true,
+});
+
+export async function notificationPusher(message: string) {
+        globalPusher.trigger("my-channel", "notification", {
+        message,
+});
+}

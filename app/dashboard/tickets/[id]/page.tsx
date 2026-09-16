@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams } from 'next/navigation'
 import {
   Box,
   Typography,
@@ -62,6 +62,7 @@ import {
   Web as WebIcon,
   Api as ApiIcon,
 } from '@mui/icons-material'
+import { useUser } from '@/lib/user-context'
 
 type User = {
   id: string | number
@@ -148,7 +149,7 @@ type Ticket = {
   slaResponseDueAt: string | null
   slaResolveDueAt: string | null
   isBookmarked: boolean
-  tags: any[]            // may be string[] or TicketTag[] from API
+  tags: any[]
   aiSuggestedSolutions?: string[]
   relatedKnowledgeBase?: Array<{
     id: string
@@ -267,10 +268,6 @@ function getChannelLabel(channel: string) {
   return channel.charAt(0).toUpperCase() + channel.slice(1)
 }
 
-// Normalise a ticket's tags into Tag[] regardless of shape:
-// - string[]                     → [{ id: -1, name: 'Bug', ... }]  (fallback)
-// - { ticketId, tagId, tag }[]  → [tag, tag, ...]
-// - Tag[]                       → [tag, tag, ...]
 function normaliseTicketTags(raw: any[] | undefined | null): Tag[] {
   if (!Array.isArray(raw)) return []
   return raw
@@ -294,13 +291,19 @@ function normaliseTicketTags(raw: any[] | undefined | null): Tag[] {
 
 export default function TicketDetailPage() {
   const params = useParams()
-  const router = useRouter()
+  const { can } = useUser()
+
+  // ---------- Permissions ----------
+  const canView = can('tickets', 'view')
+  const canCreate = can('tickets', 'create')
+  const canUpdate = can('tickets', 'update')
+  const canDelete = can('tickets', 'delete')
+
   const [ticket, setTicket] = useState<Ticket | null>(null)
   const [loading, setLoading] = useState(true)
   const [showHistory, setShowHistory] = useState(false)
   const [showAISuggestions, setShowAISuggestions] = useState(false)
 
-  // All org tags (for the picker)
   const [allTags, setAllTags] = useState<Tag[]>([])
   const [loadingTags, setLoadingTags] = useState(true)
   const [savingTags, setSavingTags] = useState(false)
@@ -349,7 +352,6 @@ export default function TicketDetailPage() {
           priority: data.priority || 'medium',
         })
 
-        // Merge ticket tags into allTags so they always render as chips
         setAllTags((prev) => {
           const map = new Map(prev.map((t) => [t.id, t]))
           ticketTags.forEach((t) => map.set(t.id, t))
@@ -363,8 +365,12 @@ export default function TicketDetailPage() {
       .finally(() => setLoading(false))
   }
 
-  // Load all org tags once
+  // Load all org tags only if the user can update (needed for the picker)
   useEffect(() => {
+    if (!canUpdate) {
+      setLoadingTags(false)
+      return
+    }
     let cancelled = false
     setLoadingTags(true)
     fetch('/api/tags')
@@ -376,7 +382,6 @@ export default function TicketDetailPage() {
         } else if (data && Array.isArray(data.tags)) {
           setAllTags(data.tags)
         } else {
-          console.warn('Unexpected /api/tags response:', data)
           setAllTags([])
         }
       })
@@ -388,15 +393,20 @@ export default function TicketDetailPage() {
         if (!cancelled) setLoadingTags(false)
       })
     return () => { cancelled = true }
-  }, [])
+  }, [canUpdate])
 
+  // Fetch the ticket only when the user has view permission
   useEffect(() => {
+    if (!canView) {
+      setLoading(false)
+      return
+    }
     loadTicket()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params?.id])
+  }, [params?.id, canView])
 
   async function patchTicket(body: Record<string, unknown>, successMessage: string) {
-    if (!ticket) return
+    if (!ticket || !canUpdate) return
     try {
       const res = await fetch(`/api/tickets/${ticket.id}`, {
         method: 'PATCH',
@@ -414,11 +424,9 @@ export default function TicketDetailPage() {
     }
   }
 
-  // Special handler for tags — sends `tagIds` (matches the list page's payload shape)
   async function saveTags(nextTags: Tag[]) {
-    if (!ticket) return
+    if (!ticket || !canUpdate) return
     setSavingTags(true)
-    // Optimistically update the UI
     const previous = ticket.tags
     setTicket({ ...ticket, tags: nextTags })
     try {
@@ -431,7 +439,6 @@ export default function TicketDetailPage() {
       loadTicket()
       setToast({ open: true, message: 'Tags updated', severity: 'success' })
     } catch {
-      // Revert on failure
       setTicket((cur) => (cur ? { ...cur, tags: previous } : cur))
       setToast({ open: true, message: 'Could not update tags', severity: 'error' })
     } finally {
@@ -440,7 +447,7 @@ export default function TicketDetailPage() {
   }
 
   async function sendReply() {
-    if (!ticket || !replyBody.trim()) return
+    if (!ticket || !replyBody.trim() || !canUpdate) return
 
     setSending(true)
     try {
@@ -505,6 +512,17 @@ export default function TicketDetailPage() {
 
   function removeAttachment(index: number) {
     setAttachments(prev => prev.filter((_, i) => i !== index))
+  }
+
+  // ---------- No-view fallback ----------
+  if (!canView) {
+    return (
+      <Box sx={{ p: 5, textAlign: 'center' }}>
+        <Typography variant="h6" color="text.secondary">
+          You don't have permission to view this ticket.
+        </Typography>
+      </Box>
+    )
   }
 
   if (loading) {
@@ -601,11 +619,13 @@ export default function TicketDetailPage() {
           </Box>
         </Box>
         <Box sx={{ display: 'flex', gap: 1, mt: { xs: 2, md: 0 } }}>
-          <Tooltip title="Bookmark">
-            <IconButton size="small" onClick={() => patchTicket({ isBookmarked: !ticket.isBookmarked }, 'Bookmark toggled')}>
-              {ticket.isBookmarked ? <BookmarkIcon color="primary" /> : <BookmarkBorderIcon />}
-            </IconButton>
-          </Tooltip>
+          {canUpdate && (
+            <Tooltip title="Bookmark">
+              <IconButton size="small" onClick={() => patchTicket({ isBookmarked: !ticket.isBookmarked }, 'Bookmark toggled')}>
+                {ticket.isBookmarked ? <BookmarkIcon color="primary" /> : <BookmarkBorderIcon />}
+              </IconButton>
+            </Tooltip>
+          )}
           <Tooltip title="Refresh">
             <IconButton size="small" onClick={loadTicket}>
               <RefreshIcon />
@@ -621,30 +641,32 @@ export default function TicketDetailPage() {
 
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr 340px' }, gap: 3 }}>
         <Box>
-          <ButtonGroup size="small" sx={{ mb: 2 }}>
-            <Button
-              startIcon={<CheckCircleIcon fontSize="small" />}
-              onClick={() => patchTicket({ status: 'resolved' }, 'Marked as resolved')}
-              disabled={ticket.status === 'resolved'}
-            >
-              Resolve
-            </Button>
-            <Button
-              startIcon={<LockIcon fontSize="small" />}
-              onClick={() => patchTicket({ status: 'closed' }, 'Ticket closed')}
-              disabled={ticket.status === 'closed'}
-            >
-              Close
-            </Button>
-            {(ticket.status === 'resolved' || ticket.status === 'closed') && (
+          {canUpdate && (
+            <ButtonGroup size="small" sx={{ mb: 2 }}>
               <Button
-                startIcon={<ReplayIcon fontSize="small" />}
-                onClick={() => patchTicket({ status: 'open' }, 'Ticket reopened')}
+                startIcon={<CheckCircleIcon fontSize="small" />}
+                onClick={() => patchTicket({ status: 'resolved' }, 'Marked as resolved')}
+                disabled={ticket.status === 'resolved'}
               >
-                Reopen
+                Resolve
               </Button>
-            )}
-          </ButtonGroup>
+              <Button
+                startIcon={<LockIcon fontSize="small" />}
+                onClick={() => patchTicket({ status: 'closed' }, 'Ticket closed')}
+                disabled={ticket.status === 'closed'}
+              >
+                Close
+              </Button>
+              {(ticket.status === 'resolved' || ticket.status === 'closed') && (
+                <Button
+                  startIcon={<ReplayIcon fontSize="small" />}
+                  onClick={() => patchTicket({ status: 'open' }, 'Ticket reopened')}
+                >
+                  Reopen
+                </Button>
+              )}
+            </ButtonGroup>
+          )}
 
           <Paper variant="outlined" sx={{ p: 2.5, borderColor: '#E2E5EA' }}>
             <Box sx={{ display: 'flex', gap: 1.5 }}>
@@ -731,103 +753,105 @@ export default function TicketDetailPage() {
             ))}
           </Box>
 
-          <Paper variant="outlined" sx={{ mt: 2, p: 2.5, borderColor: '#E2E5EA' }}>
-            <ToggleButtonGroup
-              value={replyType}
-              exclusive
-              onChange={(_, v) => v && setReplyType(v)}
-              size="small"
-              sx={{ mb: 1.5 }}
-            >
-              <ToggleButton value="public" sx={{ textTransform: 'none' }}>Reply</ToggleButton>
-              <ToggleButton value="internal" sx={{ textTransform: 'none' }}>Internal note</ToggleButton>
-            </ToggleButtonGroup>
-
-            <TextField
-              fullWidth
-              multiline
-              rows={3}
-              placeholder={replyType === 'internal' ? 'Note visible only to your team…' : 'Write a reply…'}
-              value={replyBody}
-              onChange={(e) => setReplyBody(e.target.value)}
-              sx={{ '& .MuiOutlinedInput-root': { bgcolor: '#FAFBFC' } }}
-            />
-
-            {attachments.length > 0 && (
-              <Box sx={{ mt: 1, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                {attachments.map((file, index) => (
-                  <Chip
-                    key={index}
-                    label={file.name}
-                    onDelete={() => removeAttachment(index)}
-                    size="small"
-                  />
-                ))}
-              </Box>
-            )}
-
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1.5 }}>
-              <Box>
-                <input
-                  type="file"
-                  multiple
-                  ref={fileInputRef}
-                  onChange={handleFileAttach}
-                  style={{ display: 'none' }}
-                />
-                <Button
-                  size="small"
-                  startIcon={<AttachFileIcon />}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  Attach
-                </Button>
-                <Button
-                  size="small"
-                  startIcon={<SmartToyIcon />}
-                  onClick={() => setShowAISuggestions(!showAISuggestions)}
-                  color="secondary"
-                >
-                  AI Help
-                </Button>
-              </Box>
-              <Button
-                variant="contained"
-                onClick={sendReply}
-                disabled={sending || !replyBody.trim()}
-                endIcon={sending ? undefined : <SendIcon />}
+          {canUpdate && (
+            <Paper variant="outlined" sx={{ mt: 2, p: 2.5, borderColor: '#E2E5EA' }}>
+              <ToggleButtonGroup
+                value={replyType}
+                exclusive
+                onChange={(_, v) => v && setReplyType(v)}
+                size="small"
+                sx={{ mb: 1.5 }}
               >
-                {sending ? 'Sending…' : replyType === 'internal' ? 'Add note' : 'Send reply'}
-              </Button>
-            </Box>
+                <ToggleButton value="public" sx={{ textTransform: 'none' }}>Reply</ToggleButton>
+                <ToggleButton value="internal" sx={{ textTransform: 'none' }}>Internal note</ToggleButton>
+              </ToggleButtonGroup>
 
-            <Collapse in={showAISuggestions}>
-              <Box sx={{ mt: 2, p: 2, bgcolor: '#7C3AED08', borderRadius: 1, border: '1px solid #7C3AED33' }}>
-                <Typography variant="subtitle2" sx={{ display: 'flex', alignItems: 'center', gap: 1, color: '#7C3AED' }}>
-                  <SmartToyIcon fontSize="small" />
-                  AI Suggested Responses
-                </Typography>
-                {ticket.aiSuggestedSolutions && ticket.aiSuggestedSolutions.length > 0 ? (
-                  <Box sx={{ mt: 1 }}>
-                    {ticket.aiSuggestedSolutions.map((suggestion, index) => (
-                      <Paper
-                        key={index}
-                        variant="outlined"
-                        sx={{ p: 1.5, mt: 1, cursor: 'pointer', '&:hover': { bgcolor: '#7C3AED08' } }}
-                        onClick={() => setReplyBody(suggestion)}
-                      >
-                        <Typography variant="body2">{suggestion}</Typography>
-                      </Paper>
-                    ))}
-                  </Box>
-                ) : (
-                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                    No AI suggestions available. The AI feature will be available soon.
-                  </Typography>
-                )}
+              <TextField
+                fullWidth
+                multiline
+                rows={3}
+                placeholder={replyType === 'internal' ? 'Note visible only to your team…' : 'Write a reply…'}
+                value={replyBody}
+                onChange={(e) => setReplyBody(e.target.value)}
+                sx={{ '& .MuiOutlinedInput-root': { bgcolor: '#FAFBFC' } }}
+              />
+
+              {attachments.length > 0 && (
+                <Box sx={{ mt: 1, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                  {attachments.map((file, index) => (
+                    <Chip
+                      key={index}
+                      label={file.name}
+                      onDelete={() => removeAttachment(index)}
+                      size="small"
+                    />
+                  ))}
+                </Box>
+              )}
+
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1.5 }}>
+                <Box>
+                  <input
+                    type="file"
+                    multiple
+                    ref={fileInputRef}
+                    onChange={handleFileAttach}
+                    style={{ display: 'none' }}
+                  />
+                  <Button
+                    size="small"
+                    startIcon={<AttachFileIcon />}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    Attach
+                  </Button>
+                  <Button
+                    size="small"
+                    startIcon={<SmartToyIcon />}
+                    onClick={() => setShowAISuggestions(!showAISuggestions)}
+                    color="secondary"
+                  >
+                    AI Help
+                  </Button>
+                </Box>
+                <Button
+                  variant="contained"
+                  onClick={sendReply}
+                  disabled={sending || !replyBody.trim()}
+                  endIcon={sending ? undefined : <SendIcon />}
+                >
+                  {sending ? 'Sending…' : replyType === 'internal' ? 'Add note' : 'Send reply'}
+                </Button>
               </Box>
-            </Collapse>
-          </Paper>
+
+              <Collapse in={showAISuggestions}>
+                <Box sx={{ mt: 2, p: 2, bgcolor: '#7C3AED08', borderRadius: 1, border: '1px solid #7C3AED33' }}>
+                  <Typography variant="subtitle2" sx={{ display: 'flex', alignItems: 'center', gap: 1, color: '#7C3AED' }}>
+                    <SmartToyIcon fontSize="small" />
+                    AI Suggested Responses
+                  </Typography>
+                  {ticket.aiSuggestedSolutions && ticket.aiSuggestedSolutions.length > 0 ? (
+                    <Box sx={{ mt: 1 }}>
+                      {ticket.aiSuggestedSolutions.map((suggestion, index) => (
+                        <Paper
+                          key={index}
+                          variant="outlined"
+                          sx={{ p: 1.5, mt: 1, cursor: 'pointer', '&:hover': { bgcolor: '#7C3AED08' } }}
+                          onClick={() => setReplyBody(suggestion)}
+                        >
+                          <Typography variant="body2">{suggestion}</Typography>
+                        </Paper>
+                      ))}
+                    </Box>
+                  ) : (
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                      No AI suggestions available. The AI feature will be available soon.
+                    </Typography>
+                  )}
+                </Box>
+              </Collapse>
+            </Paper>
+          )}
 
           {ticket.relatedKnowledgeBase && ticket.relatedKnowledgeBase.length > 0 && (
             <Box sx={{ mt: 2 }}>
@@ -945,6 +969,7 @@ export default function TicketDetailPage() {
               size="small"
               value={ticket.status}
               onChange={(e) => patchTicket({ status: e.target.value }, 'Status updated')}
+              disabled={!canUpdate}
               sx={{ mt: 1 }}
             >
               <MenuItem value="open">Open</MenuItem>
@@ -963,6 +988,7 @@ export default function TicketDetailPage() {
               size="small"
               value={ticket.priority}
               onChange={(e) => patchTicket({ priority: e.target.value }, 'Priority updated')}
+              disabled={!canUpdate}
               sx={{ mt: 1 }}
             >
               {PRIORITIES.map((p) => (
@@ -986,6 +1012,7 @@ export default function TicketDetailPage() {
               displayEmpty
               value={ticket.category ?? ''}
               onChange={(e) => patchTicket({ category: e.target.value || null }, 'Category updated')}
+              disabled={!canUpdate}
               sx={{ mt: 1 }}
             >
               <MenuItem value="">No category</MenuItem>
@@ -1014,6 +1041,7 @@ export default function TicketDetailPage() {
               onChange={(_, val) => saveTags(val as Tag[])}
               isOptionEqualToValue={(a, b) => a.id === b.id}
               loading={loadingTags}
+              disabled={!canUpdate}
               renderOption={(props, option) => {
                 const { key, ...rest } = props as any
                 return (
@@ -1156,14 +1184,16 @@ export default function TicketDetailPage() {
               >
                 Copy Link
               </Button>
-              <Button
-                size="small"
-                variant="outlined"
-                startIcon={<FileCopyIcon />}
-                onClick={() => patchTicket({ status: 'open' }, 'Ticket duplicated')}
-              >
-                Duplicate Ticket
-              </Button>
+              {canUpdate && (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<FileCopyIcon />}
+                  onClick={() => patchTicket({ status: 'open' }, 'Ticket duplicated')}
+                >
+                  Duplicate Ticket
+                </Button>
+              )}
             </Box>
           </Paper>
         </Box>

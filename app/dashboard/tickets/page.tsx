@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   Box, Typography, Paper, TextField, Button, Select, MenuItem,
   Autocomplete, ToggleButtonGroup, ToggleButton, Divider, Alert,
@@ -19,6 +20,8 @@ import PersonIcon from '@mui/icons-material/Person'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
+import { useUser } from '@/lib/user-context'
+import { moduleEnabled } from '@/lib/permissions'
 
 // ---------- Types ----------
 
@@ -137,6 +140,17 @@ function timeAgo(dateStr: string) {
 // ---------- Component ----------
 
 export default function TicketsPage() {
+  const router = useRouter()
+  const { can, user } = useUser()
+
+  // ---------- Permissions ----------
+  const canView = can('tickets', 'view')
+  const canCreate = can('tickets', 'create')
+  const canUpdate = can('tickets', 'update')
+  const canDelete = can('tickets', 'delete')
+
+  const hasAnyTicketPermission = moduleEnabled(user.role.permissions, 'tickets')
+
   const [orgUsers, setOrgUsers] = useState<OrgUser[]>([])
   const [teams, setTeams] = useState<Team[]>([])
   const [allTags, setAllTags] = useState<Tag[]>([])
@@ -176,6 +190,13 @@ export default function TicketsPage() {
   const [selectedUserTicketId, setSelectedUserTicketId] = useState<number | null>(null)
   const [assigningUser, setAssigningUser] = useState(false)
 
+  // ---------- Redirect if no ticket permission at all ----------
+  useEffect(() => {
+    if (!hasAnyTicketPermission) {
+      router.replace('/dashboard')
+    }
+  }, [hasAnyTicketPermission, router])
+
   // ---------- Data loading ----------
 
   function normaliseStats(raw: any): TicketStats {
@@ -212,22 +233,32 @@ export default function TicketsPage() {
   }
 
   useEffect(() => {
+    if (!canView && !canCreate) {
+      setLoadingContext(false)
+      setLoadingTickets(false)
+      return
+    }
+
     Promise.all([
-      fetch('/api/users').then((r) => (r.ok ? r.json() : null)).catch(() => null),
-      fetch('/api/teams').then((r) => (r.ok ? r.json() : null)).catch(() => null),
-      fetch('/api/tags').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      canCreate
+        ? fetch('/api/users').then((r) => (r.ok ? r.json() : null)).catch(() => null)
+        : Promise.resolve(null),
+      canCreate
+        ? fetch('/api/teams').then((r) => (r.ok ? r.json() : null)).catch(() => null)
+        : Promise.resolve(null),
+      canCreate
+        ? fetch('/api/tags').then((r) => (r.ok ? r.json() : null)).catch(() => null)
+        : Promise.resolve(null),
     ])
       .then(([usersData, teamsData, tagsData]) => {
         if (Array.isArray(usersData)) setOrgUsers(usersData)
         if (Array.isArray(teamsData)) setTeams(teamsData)
 
-        // Handle both response shapes: { tags: [...] } and [...]
         if (Array.isArray(tagsData)) {
           setAllTags(tagsData)
         } else if (tagsData && Array.isArray(tagsData.tags)) {
           setAllTags(tagsData.tags)
         } else {
-          console.warn('Unexpected /api/tags response:', tagsData)
           setAllTags([])
         }
       })
@@ -237,9 +268,10 @@ export default function TicketsPage() {
       })
       .finally(() => setLoadingContext(false))
 
-    loadTickets('all')
+    if (canView) loadTickets('all')
+    else setLoadingTickets(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [canView, canCreate])
 
   const handleStatusFilterChange = (
     _: React.MouseEvent<HTMLElement>,
@@ -257,6 +289,7 @@ export default function TicketsPage() {
     event: React.MouseEvent<HTMLElement>,
     ticketId: number
   ) => {
+    if (!canUpdate) return
     event.stopPropagation()
     setTeamAnchorEl(event.currentTarget)
     setSelectedTicketId(ticketId)
@@ -266,7 +299,7 @@ export default function TicketsPage() {
     setSelectedTicketId(null)
   }
   const handleTeamAssign = async (teamIdValue: number | null) => {
-    if (!selectedTicketId) return
+    if (!selectedTicketId || !canUpdate) return
     setAssigningTeam(true)
     try {
       const res = await fetch(`/api/tickets/${selectedTicketId}`, {
@@ -289,6 +322,7 @@ export default function TicketsPage() {
     event: React.MouseEvent<HTMLElement>,
     ticketId: number
   ) => {
+    if (!canUpdate) return
     event.stopPropagation()
     setUserAnchorEl(event.currentTarget)
     setSelectedUserTicketId(ticketId)
@@ -298,7 +332,7 @@ export default function TicketsPage() {
     setSelectedUserTicketId(null)
   }
   const handleUserAssign = async (userId: number | null) => {
-    if (!selectedUserTicketId) return
+    if (!selectedUserTicketId || !canUpdate) return
     setAssigningUser(true)
     try {
       const res = await fetch(`/api/tickets/${selectedUserTicketId}`, {
@@ -331,11 +365,13 @@ export default function TicketsPage() {
   }
 
   function openCreateDialog() {
+    if (!canCreate) return
     resetForm()
     setCreateOpen(true)
   }
 
   function handleEditClick(ticket: Ticket) {
+    if (!canUpdate) return
     setEditingTicket(ticket)
     setSubject(ticket.subject)
     setDescription(ticket.description ?? '')
@@ -348,7 +384,6 @@ export default function TicketsPage() {
     const ticketTags = (ticket.tags ?? []).map((tt) => tt.tag)
     setSelectedTags(ticketTags)
 
-    // Ensure the ticket's tags exist in the options list so chips render
     setAllTags((prev) => {
       const map = new Map(prev.map((t) => [t.id, t]))
       ticketTags.forEach((t) => map.set(t.id, t))
@@ -360,11 +395,12 @@ export default function TicketsPage() {
   }
 
   function handleDeleteClick(ticket: Ticket) {
+    if (!canDelete) return
     setDeleteTarget(ticket)
   }
 
   async function handleDeleteConfirm() {
-    if (!deleteTarget) return
+    if (!deleteTarget || !canDelete) return
     setDeleting(true)
     try {
       const res = await fetch(`/api/tickets/${deleteTarget.id}`, {
@@ -385,11 +421,13 @@ export default function TicketsPage() {
   }
 
   async function handleSubmit() {
+    const isEdit = Boolean(editingTicket)
+    if (isEdit && !canUpdate) return
+    if (!isEdit && !canCreate) return
     if (!subject.trim() || !description.trim()) return
     setSubmitting(true)
     setError('')
 
-    const isEdit = Boolean(editingTicket)
     const url = isEdit ? `/api/tickets/${editingTicket!.id}` : '/api/tickets'
     const method = isEdit ? 'PATCH' : 'POST'
 
@@ -427,8 +465,14 @@ export default function TicketsPage() {
     }
   }
 
+  // If no tickets permission at all, render nothing while redirect runs
+  if (!hasAnyTicketPermission) {
+    return null
+  }
+
   const filtered = Array.isArray(tickets) ? tickets : []
   const isEditing = Boolean(editingTicket)
+  const showActionsColumn = canUpdate || canDelete
 
   const statCards: { key: StatKey; label: string; icon: any; color: string }[] = [
     { key: 'total',    label: 'Total Tickets',    icon: ConfirmationNumberIcon, color: '#2F5DE0' },
@@ -455,262 +499,294 @@ export default function TicketsPage() {
             Track and manage all your support tickets
           </Typography>
         </Box>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={openCreateDialog}>
-          New ticket
-        </Button>
+        {canCreate && (
+          <Button variant="contained" startIcon={<AddIcon />} onClick={openCreateDialog}>
+            New ticket
+          </Button>
+        )}
       </Box>
 
-      {/* Quick stats — org-wide, unaffected by status filter */}
-      <Box
-        sx={{
-          display: 'grid',
-          gridTemplateColumns: { xs: '1fr', sm: 'repeat(5, 1fr)' },
-          gap: 2,
-          mt: 3,
-        }}
-      >
-        {statCards.map((s) => (
-          <Paper
-            key={s.key}
-            variant="outlined"
+      {canView ? (
+        <>
+          {/* Quick stats */}
+          <Box
             sx={{
-              p: 2,
-              borderColor: '#E2E5EA',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 1.5,
+              display: 'grid',
+              gridTemplateColumns: { xs: '1fr', sm: 'repeat(5, 1fr)' },
+              gap: 2,
+              mt: 3,
             }}
           >
-            <Box
-              sx={{
-                width: 34,
-                height: 34,
-                borderRadius: 1.5,
-                bgcolor: `${s.color}14`,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <s.icon sx={{ fontSize: 18, color: s.color }} />
-            </Box>
-            <Box>
-              <Typography variant="h6" sx={{ lineHeight: 1.1 }}>
-                {loadingTickets ? <Skeleton width={28} /> : stats[s.key]}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                {s.label}
-              </Typography>
-            </Box>
-          </Paper>
-        ))}
-      </Box>
-
-      <ToggleButtonGroup
-        value={statusFilter}
-        exclusive
-        onChange={handleStatusFilterChange}
-        size="small"
-        sx={{ mt: 3, mb: 2 }}
-      >
-        <ToggleButton value="all" sx={{ textTransform: 'none' }}>All</ToggleButton>
-        <ToggleButton value="open" sx={{ textTransform: 'none' }}>Open</ToggleButton>
-        <ToggleButton value="pending" sx={{ textTransform: 'none' }}>Pending</ToggleButton>
-        <ToggleButton value="resolved" sx={{ textTransform: 'none' }}>Resolved</ToggleButton>
-        <ToggleButton value="closed" sx={{ textTransform: 'none' }}>Closed</ToggleButton>
-      </ToggleButtonGroup>
-
-      <Paper variant="outlined" sx={{ borderColor: '#E2E5EA', overflow: 'hidden' }}>
-        {loadingTickets ? (
-          <Box sx={{ p: 2 }}>
-            {[1, 2, 3].map((i) => (
-              <Skeleton key={i} height={48} />
-            ))}
-          </Box>
-        ) : filtered.length === 0 ? (
-          <Box sx={{ p: 5, textAlign: 'center' }}>
-            <Typography variant="body2" color="text.secondary">
-              {statusFilter === 'all'
-                ? 'No tickets yet.'
-                : `No ${statusFilter} tickets.`}
-            </Typography>
-          </Box>
-        ) : (
-          <Table>
-            <TableHead>
-              <TableRow
+            {statCards.map((s) => (
+              <Paper
+                key={s.key}
+                variant="outlined"
                 sx={{
-                  '& th': {
-                    color: 'text.secondary',
-                    fontSize: 13,
-                    fontWeight: 500,
-                    borderColor: '#E2E5EA',
-                  },
+                  p: 2,
+                  borderColor: '#E2E5EA',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1.5,
                 }}
               >
-                <TableCell sx={{ fontFamily: 'monospace' }}>ID</TableCell>
-                <TableCell>Subject</TableCell>
-                <TableCell>Tags</TableCell>
-                <TableCell>Requester</TableCell>
-                <TableCell>Team</TableCell>
-                <TableCell>Assignee</TableCell>
-                <TableCell>Priority</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell align="right">Updated</TableCell>
-                <TableCell align="center">Actions</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {filtered.map((ticket) => {
-                const goToTicket = () =>
-                  (window.location.href = `/dashboard/tickets/${ticket.id}`)
-                const ticketTags = ticket.tags ?? []
+                <Box
+                  sx={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: 1.5,
+                    bgcolor: `${s.color}14`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <s.icon sx={{ fontSize: 18, color: s.color }} />
+                </Box>
+                <Box>
+                  <Typography variant="h6" sx={{ lineHeight: 1.1 }}>
+                    {loadingTickets ? <Skeleton width={28} /> : stats[s.key]}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {s.label}
+                  </Typography>
+                </Box>
+              </Paper>
+            ))}
+          </Box>
 
-                return (
+          <ToggleButtonGroup
+            value={statusFilter}
+            exclusive
+            onChange={handleStatusFilterChange}
+            size="small"
+            sx={{ mt: 3, mb: 2 }}
+          >
+            <ToggleButton value="all" sx={{ textTransform: 'none' }}>All</ToggleButton>
+            <ToggleButton value="open" sx={{ textTransform: 'none' }}>Open</ToggleButton>
+            <ToggleButton value="pending" sx={{ textTransform: 'none' }}>Pending</ToggleButton>
+            <ToggleButton value="resolved" sx={{ textTransform: 'none' }}>Resolved</ToggleButton>
+            <ToggleButton value="closed" sx={{ textTransform: 'none' }}>Closed</ToggleButton>
+          </ToggleButtonGroup>
+
+          <Paper variant="outlined" sx={{ borderColor: '#E2E5EA', overflow: 'hidden' }}>
+            {loadingTickets ? (
+              <Box sx={{ p: 2 }}>
+                {[1, 2, 3].map((i) => (
+                  <Skeleton key={i} height={48} />
+                ))}
+              </Box>
+            ) : filtered.length === 0 ? (
+              <Box sx={{ p: 5, textAlign: 'center' }}>
+                <Typography variant="body2" color="text.secondary">
+                  {statusFilter === 'all'
+                    ? 'No tickets yet.'
+                    : `No ${statusFilter} tickets.`}
+                </Typography>
+              </Box>
+            ) : (
+              <Table>
+                <TableHead>
                   <TableRow
-                    key={ticket.id}
-                    hover
                     sx={{
-                      cursor: 'pointer',
-                      '&:hover': { backgroundColor: 'action.hover' },
+                      '& th': {
+                        color: 'text.secondary',
+                        fontSize: 13,
+                        fontWeight: 500,
+                        borderColor: '#E2E5EA',
+                      },
                     }}
                   >
-                    <TableCell
-                      sx={{
-                        fontFamily: 'monospace',
-                        fontSize: 13,
-                        color: 'text.secondary',
-                      }}
-                      onClick={goToTicket}
-                    >
-                      HD-{String(ticket.ticketNumber).padStart(2, '0')}
-                    </TableCell>
-                    <TableCell sx={{ fontWeight: 500 }} onClick={goToTicket}>
-                      {ticket.subject}
-                    </TableCell>
+                    <TableCell sx={{ fontFamily: 'monospace' }}>ID</TableCell>
+                    <TableCell>Subject</TableCell>
+                    <TableCell>Tags</TableCell>
+                    <TableCell>Requester</TableCell>
+                    <TableCell>Team</TableCell>
+                    <TableCell>Assignee</TableCell>
+                    <TableCell>Priority</TableCell>
+                    <TableCell>Status</TableCell>
+                    <TableCell align="right">Updated</TableCell>
+                    {showActionsColumn && <TableCell align="center">Actions</TableCell>}
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {filtered.map((ticket) => {
+                    const goToTicket = () =>
+                      (window.location.href = `/dashboard/tickets/${ticket.id}`)
+                    const ticketTags = ticket.tags ?? []
 
-                    <TableCell onClick={goToTicket}>
-                      {ticketTags.length === 0 ? (
-                        <Typography variant="caption" color="text.secondary">—</Typography>
-                      ) : (
-                        <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap' }}>
-                          {ticketTags.slice(0, 3).map((tt) => (
-                            <Chip
-                              key={tt.tagId}
-                              label={tt.tag.name}
-                              size="small"
-                              variant="outlined"
-                              sx={tagChipStyle(tt.tag.color)}
-                            />
-                          ))}
-                          {ticketTags.length > 3 && (
-                            <Tooltip
-                              title={ticketTags
-                                .slice(3)
-                                .map((tt) => tt.tag.name)
-                                .join(', ')}
-                            >
+                    return (
+                      <TableRow
+                        key={ticket.id}
+                        hover
+                        sx={{
+                          cursor: 'pointer',
+                          '&:hover': { backgroundColor: 'action.hover' },
+                        }}
+                      >
+                        <TableCell
+                          sx={{
+                            fontFamily: 'monospace',
+                            fontSize: 13,
+                            color: 'text.secondary',
+                          }}
+                          onClick={goToTicket}
+                        >
+                          HD-{String(ticket.ticketNumber).padStart(2, '0')}
+                        </TableCell>
+                        <TableCell sx={{ fontWeight: 500 }} onClick={goToTicket}>
+                          {ticket.subject}
+                        </TableCell>
+
+                        <TableCell onClick={goToTicket}>
+                          {ticketTags.length === 0 ? (
+                            <Typography variant="caption" color="text.secondary">—</Typography>
+                          ) : (
+                            <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap' }}>
+                              {ticketTags.slice(0, 3).map((tt) => (
+                                <Chip
+                                  key={tt.tagId}
+                                  label={tt.tag.name}
+                                  size="small"
+                                  variant="outlined"
+                                  sx={tagChipStyle(tt.tag.color)}
+                                />
+                              ))}
+                              {ticketTags.length > 3 && (
+                                <Tooltip
+                                  title={ticketTags
+                                    .slice(3)
+                                    .map((tt) => tt.tag.name)
+                                    .join(', ')}
+                                >
+                                  <Chip
+                                    label={`+${ticketTags.length - 3}`}
+                                    size="small"
+                                    variant="outlined"
+                                    sx={{ fontSize: 11, height: 22 }}
+                                  />
+                                </Tooltip>
+                              )}
+                            </Stack>
+                          )}
+                        </TableCell>
+
+                        <TableCell sx={{ color: 'text.secondary' }} onClick={goToTicket}>
+                          {ticket.requester?.name ?? ticket.requester?.email ?? '—'}
+                        </TableCell>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            {ticket.team ? (
+                              <Chip label={ticket.team.name} size="small" variant="outlined" sx={{ fontSize: 12 }} />
+                            ) : (
+                              <Typography variant="caption" color="text.secondary">Unassigned</Typography>
+                            )}
+                            {canUpdate && (
+                              <Tooltip title="Assign team">
+                                <IconButton size="small" onClick={(e) => handleTeamAssignClick(e, ticket.id)} sx={{ p: 0.5 }}>
+                                  <MoreVertIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                          </Box>
+                        </TableCell>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            {ticket.assignee ? (
                               <Chip
-                                label={`+${ticketTags.length - 3}`}
+                                label={ticket.assignee.name ?? ticket.assignee.email}
                                 size="small"
                                 variant="outlined"
-                                sx={{ fontSize: 11, height: 22 }}
+                                sx={{ fontSize: 12 }}
                               />
-                            </Tooltip>
-                          )}
-                        </Stack>
-                      )}
-                    </TableCell>
-
-                    <TableCell sx={{ color: 'text.secondary' }} onClick={goToTicket}>
-                      {ticket.requester?.name ?? ticket.requester?.email ?? '—'}
-                    </TableCell>
-                    <TableCell>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        {ticket.team ? (
-                          <Chip label={ticket.team.name} size="small" variant="outlined" sx={{ fontSize: 12 }} />
-                        ) : (
-                          <Typography variant="caption" color="text.secondary">Unassigned</Typography>
-                        )}
-                        <Tooltip title="Assign team">
-                          <IconButton size="small" onClick={(e) => handleTeamAssignClick(e, ticket.id)} sx={{ p: 0.5 }}>
-                            <MoreVertIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </Box>
-                    </TableCell>
-                    <TableCell>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        {ticket.assignee ? (
+                            ) : (
+                              <Typography variant="caption" color="text.secondary">Unassigned</Typography>
+                            )}
+                            {canUpdate && (
+                              <Tooltip title="Assign user">
+                                <IconButton size="small" onClick={(e) => handleUserAssignClick(e, ticket.id)} sx={{ p: 0.5 }}>
+                                  <MoreVertIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                          </Box>
+                        </TableCell>
+                        <TableCell onClick={goToTicket}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                            <Box
+                              sx={{
+                                width: 7, height: 7, borderRadius: '50%',
+                                bgcolor: PRIORITY_COLOR[ticket.priority] || '#8A93A3',
+                              }}
+                            />
+                            <Typography variant="body2" sx={{ textTransform: 'capitalize' }}>
+                              {ticket.priority}
+                            </Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell onClick={goToTicket}>
                           <Chip
-                            label={ticket.assignee.name ?? ticket.assignee.email}
+                            label={ticket.status}
                             size="small"
-                            variant="outlined"
-                            sx={{ fontSize: 12 }}
+                            sx={{
+                              bgcolor: STATUS_COLOR[ticket.status]?.bg || '#E2E5EA',
+                              color: STATUS_COLOR[ticket.status]?.text || '#5A6272',
+                              fontWeight: 500,
+                              textTransform: 'capitalize',
+                            }}
                           />
-                        ) : (
-                          <Typography variant="caption" color="text.secondary">Unassigned</Typography>
+                        </TableCell>
+                        <TableCell
+                          align="right"
+                          sx={{ color: 'text.secondary', fontSize: 13 }}
+                          onClick={goToTicket}
+                        >
+                          {timeAgo(ticket.updatedAt)}
+                        </TableCell>
+                        {showActionsColumn && (
+                          <TableCell align="center">
+                            <Box sx={{ display: 'flex', justifyContent: 'center', gap: 0.5 }}>
+                              {canUpdate && (
+                                <Tooltip title="Edit">
+                                  <IconButton size="small" onClick={() => handleEditClick(ticket)} sx={{ p: 0.5 }}>
+                                    <EditIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              )}
+                              {canDelete && (
+                                <Tooltip title="Delete">
+                                  <IconButton size="small" onClick={() => handleDeleteClick(ticket)} sx={{ p: 0.5, color: 'error.main' }}>
+                                    <DeleteIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              )}
+                            </Box>
+                          </TableCell>
                         )}
-                        <Tooltip title="Assign user">
-                          <IconButton size="small" onClick={(e) => handleUserAssignClick(e, ticket.id)} sx={{ p: 0.5 }}>
-                            <MoreVertIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </Box>
-                    </TableCell>
-                    <TableCell onClick={goToTicket}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                        <Box
-                          sx={{
-                            width: 7, height: 7, borderRadius: '50%',
-                            bgcolor: PRIORITY_COLOR[ticket.priority] || '#8A93A3',
-                          }}
-                        />
-                        <Typography variant="body2" sx={{ textTransform: 'capitalize' }}>
-                          {ticket.priority}
-                        </Typography>
-                      </Box>
-                    </TableCell>
-                    <TableCell onClick={goToTicket}>
-                      <Chip
-                        label={ticket.status}
-                        size="small"
-                        sx={{
-                          bgcolor: STATUS_COLOR[ticket.status]?.bg || '#E2E5EA',
-                          color: STATUS_COLOR[ticket.status]?.text || '#5A6272',
-                          fontWeight: 500,
-                          textTransform: 'capitalize',
-                        }}
-                      />
-                    </TableCell>
-                    <TableCell
-                      align="right"
-                      sx={{ color: 'text.secondary', fontSize: 13 }}
-                      onClick={goToTicket}
-                    >
-                      {timeAgo(ticket.updatedAt)}
-                    </TableCell>
-                    <TableCell align="center">
-                      <Box sx={{ display: 'flex', justifyContent: 'center', gap: 0.5 }}>
-                        <Tooltip title="Edit">
-                          <IconButton size="small" onClick={() => handleEditClick(ticket)} sx={{ p: 0.5 }}>
-                            <EditIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Delete">
-                          <IconButton size="small" onClick={() => handleDeleteClick(ticket)} sx={{ p: 0.5, color: 'error.main' }}>
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </Box>
-                    </TableCell>
-                  </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
-        )}
-      </Paper>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            )}
+          </Paper>
+        </>
+      ) : (
+        <Box sx={{ p: 5, textAlign: 'center', mt: 3 }}>
+          <Typography variant="h6" color="text.secondary">
+            You don't have permission to view tickets.
+          </Typography>
+          {canCreate && (
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={openCreateDialog}
+              sx={{ mt: 2 }}
+            >
+              New ticket
+            </Button>
+          )}
+        </Box>
+      )}
 
       {/* Team Assignment Popover */}
       <Popover

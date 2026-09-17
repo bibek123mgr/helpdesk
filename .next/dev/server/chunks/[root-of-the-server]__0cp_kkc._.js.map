@@ -1,6 +1,0 @@
-{
-  "version": 3,
-  "sources": [],
-  "sections": [
-    {"offset": {"line": 106, "column": 0}, "map": {"version":3,"sources":["file:///home/bibek/Desktop/helpdesk/proxy.ts"],"sourcesContent":["import { NextRequest, NextResponse } from 'next/server'\n\nexport function proxy(request: NextRequest) {\n  const { pathname } = request.nextUrl\n\n  if (pathname === '/home') {\n    return NextResponse.next()\n  }\n\n  return NextResponse.redirect(new URL('/home', request.url))\n}"],"names":["proxy","request","pathname","nextUrl","next","redirect","URL","url"],"mappings":";;;;AAAA;;AAEO,SAASA,MAAMC,OAAoB;IACxC,MAAM,EAAEC,QAAQ,EAAE,GAAGD,QAAQE,OAAO;IAEpC,IAAID,aAAa,SAAS;QACxB,OAAO,8IAAY,CAACE,IAAI;IAC1B;IAEA,OAAO,8IAAY,CAACC,QAAQ,CAAC,IAAIC,IAAI,SAASL,QAAQM,GAAG;AAC3D"}}]
-}

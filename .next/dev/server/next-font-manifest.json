@@ -1,22 +1,26 @@
 {
   "app": {
+    "[project]/app/(auth)/login/page": [
+      "static/media/0c89a48fa5027cee-s.p.2cyn07wtgehh0.woff2",
+      "static/media/83afe278b6a6bb3c-s.p.2bn3s6zvc0dyp.woff2"
+    ],
+    "[project]/app/(auth)/register/page": [
+      "static/media/0c89a48fa5027cee-s.p.2cyn07wtgehh0.woff2",
+      "static/media/83afe278b6a6bb3c-s.p.2bn3s6zvc0dyp.woff2"
+    ],
+    "[project]/app/_not-found/page": [
+      "static/media/0c89a48fa5027cee-s.p.2cyn07wtgehh0.woff2",
+      "static/media/83afe278b6a6bb3c-s.p.2bn3s6zvc0dyp.woff2"
+    ],
+    "[project]/app/dashboard/organizations/page": [
+      "static/media/0c89a48fa5027cee-s.p.2cyn07wtgehh0.woff2",
+      "static/media/83afe278b6a6bb3c-s.p.2bn3s6zvc0dyp.woff2"
+    ],
     "[project]/app/dashboard/page": [
       "static/media/0c89a48fa5027cee-s.p.2cyn07wtgehh0.woff2",
       "static/media/83afe278b6a6bb3c-s.p.2bn3s6zvc0dyp.woff2"
     ],
     "[project]/app/dashboard/roles/page": [
-      "static/media/0c89a48fa5027cee-s.p.2cyn07wtgehh0.woff2",
-      "static/media/83afe278b6a6bb3c-s.p.2bn3s6zvc0dyp.woff2"
-    ],
-    "[project]/app/dashboard/team/page": [
-      "static/media/0c89a48fa5027cee-s.p.2cyn07wtgehh0.woff2",
-      "static/media/83afe278b6a6bb3c-s.p.2bn3s6zvc0dyp.woff2"
-    ],
-    "[project]/app/dashboard/tickets/[id]/page": [
-      "static/media/0c89a48fa5027cee-s.p.2cyn07wtgehh0.woff2",
-      "static/media/83afe278b6a6bb3c-s.p.2bn3s6zvc0dyp.woff2"
-    ],
-    "[project]/app/dashboard/tickets/page": [
       "static/media/0c89a48fa5027cee-s.p.2cyn07wtgehh0.woff2",
       "static/media/83afe278b6a6bb3c-s.p.2bn3s6zvc0dyp.woff2"
     ]

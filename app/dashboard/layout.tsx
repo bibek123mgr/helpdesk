@@ -15,7 +15,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
     id: user.id,
     name: user.name,
     email: user.email,
-    organization: { name: user.organization.name },
+    organization: { name: user.organization?.name ?? null },
     role: {
       role: user.role.role,
       orgId: user.role.orgId,

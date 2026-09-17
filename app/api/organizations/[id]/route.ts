@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getCurrentUser } from '@/lib/getCurrentUser'
+import { requirePermission } from '@/lib/requirePermission'
 
 async function requireSuperAdmin() {
   const user = await getCurrentUser()

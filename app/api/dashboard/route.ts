@@ -5,11 +5,20 @@ import { requirePermission } from '@/lib/requirePermission'
 
 export async function GET() {
   const auth = await requirePermission('tickets', 'view')
+  if (!auth.authorized) return auth.response
+
   const requestUser = auth.user
-    if (!requestUser) {
-        return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-    }
-  const orgId = auth.user.orgId
+  if (!requestUser) {
+    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  }
+
+  // orgId is nullable — null means "super admin, count across all orgs"
+  const orgId: number | null = requestUser.orgId ?? null
+  const isGlobal = orgId === null
+
+  // Build a reusable scope filter
+  const scope = isGlobal ? {} : { orgId: orgId as number }
+
   const now = new Date()
   const weekAgo = new Date(now.getTime() - 7 * 24 * 3600_000)
   const twoHoursFromNow = new Date(now.getTime() + 2 * 3600_000)
@@ -22,6 +31,9 @@ export async function GET() {
       unassigned,
       overdueSla,
       resolvedThisWeek,
+      totalUsers,
+      totalTeams,
+      totalTags,
       needsAttentionRaw,
       byStatusRaw,
       byPriorityRaw,
@@ -30,12 +42,12 @@ export async function GET() {
     ] = await Promise.all([
       // -------- KPIs --------
       prisma.ticket.count({
-        where: { orgId, status: 'open' },
+        where: { ...scope, status: 'open' },
       }),
 
       prisma.ticket.count({
         where: {
-          orgId,
+          ...scope,
           status: { notIn: ['resolved', 'closed'] },
           assigneeId: null,
         },
@@ -43,7 +55,7 @@ export async function GET() {
 
       prisma.ticket.count({
         where: {
-          orgId,
+          ...scope,
           status: { notIn: ['resolved', 'closed'] },
           slaResolveDueAt: { lt: now },
         },
@@ -51,16 +63,27 @@ export async function GET() {
 
       prisma.ticket.count({
         where: {
-          orgId,
+          ...scope,
           status: 'resolved',
           updatedAt: { gte: weekAgo },
         },
       }),
 
+      prisma.user.count({
+        where: {
+          // Super admins themselves don't count toward any org
+          ...(isGlobal ? { orgId: { not: null } } : { orgId: orgId as number }),
+        },
+      }),
+
+      prisma.team.count({ where: scope }),
+
+      prisma.tag.count({ where: scope }),
+
       // -------- Needs attention --------
       prisma.ticket.findMany({
         where: {
-          orgId,
+          ...scope,
           status: { notIn: ['resolved', 'closed'] },
           OR: [
             { priority: { in: ['urgent', 'high'] } },
@@ -72,7 +95,6 @@ export async function GET() {
           assignee: { select: { name: true } },
           team: { select: { name: true } },
         },
-        // Urgent first, then soonest SLA due
         orderBy: [{ priority: 'desc' }, { slaResolveDueAt: 'asc' }],
         take: 8,
       }),
@@ -80,26 +102,26 @@ export async function GET() {
       // -------- Breakdowns --------
       prisma.ticket.groupBy({
         by: ['status'],
-        where: { orgId },
+        where: scope,
         _count: { _all: true },
       }),
 
       prisma.ticket.groupBy({
         by: ['priority'],
-        where: { orgId },
+        where: scope,
         _count: { _all: true },
       }),
 
       prisma.ticket.groupBy({
         by: ['teamId'],
-        where: { orgId },
+        where: scope,
         _count: { _all: true },
       }),
 
       // -------- Trend (last 30 days) --------
       prisma.ticket.findMany({
         where: {
-          orgId,
+          ...scope,
           OR: [
             { createdAt: { gte: thirtyDaysAgo } },
             { status: 'resolved', updatedAt: { gte: thirtyDaysAgo } },
@@ -143,7 +165,6 @@ export async function GET() {
       teamName: t.team?.name ?? null,
     }))
 
-    // Bucket tickets by YYYY-MM-DD and count created / resolved
     const trend = buildTrend(trendRaw, thirtyDaysAgo, now)
 
     const breakdowns = {
@@ -166,7 +187,16 @@ export async function GET() {
 
     return NextResponse.json(
       {
-        kpis: { open, unassigned, overdueSla, resolvedThisWeek },
+        kpis: {
+          open,
+          unassigned,
+          overdueSla,
+          resolvedThisWeek,
+          totalUsers,
+          totalTeams,
+          totalTags,
+        },
+        scope: isGlobal ? 'global' : 'organization',
         needsAttention,
         trend,
         breakdowns,
@@ -197,8 +227,6 @@ function buildTrend(
   from: Date,
   to: Date
 ): TrendPoint[] {
-  // Build an empty bucket for every day in the range so the chart
-  // shows gaps as 0 instead of skipping days.
   const buckets = new Map<string, TrendPoint>()
 
   const start = new Date(from)

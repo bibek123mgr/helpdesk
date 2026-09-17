@@ -9,9 +9,11 @@ import {
 import InboxIcon from '@mui/icons-material/Inbox'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import PersonOffIcon from '@mui/icons-material/PersonOff'
-import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward'
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlineOutlined'
+import PeopleAltIcon from '@mui/icons-material/PeopleAlt'
+import GroupsIcon from '@mui/icons-material/Groups'
+import LocalOfferIcon from '@mui/icons-material/LocalOffer'
 // ---------- Types ----------
 
 type Priority = 'low' | 'medium' | 'high' | 'urgent'
@@ -21,7 +23,10 @@ type Kpis = {
   open: number
   unassigned: number
   overdueSla: number
-  resolvedThisWeek: number
+  resolvedThisWeek: number,
+  totalUsers:number,
+  totalTags:number,
+  totalTeams:number
 }
 
 type AttentionTicket = {
@@ -66,7 +71,7 @@ const STATUS_COLOR: Record<Status, { bg: string; text: string }> = {
 }
 
 const EMPTY_DATA: DashboardData = {
-  kpis: { open: 0, unassigned: 0, overdueSla: 0, resolvedThisWeek: 0 },
+  kpis: { open: 0, unassigned: 0, overdueSla: 0, resolvedThisWeek: 0,totalTags:0,totalTeams:0,totalUsers:0 },
   needsAttention: [],
   trend: [],
   breakdowns: { byStatus: [], byPriority: [], byTeam: [] },
@@ -93,7 +98,6 @@ function sparkPath(values: number[], width: number, height: number) {
     .join(' ')
 }
 
-// Normalise whatever the API returns into our strict shape.
 function normalise(raw: any): DashboardData {
   return {
     kpis: {
@@ -101,6 +105,10 @@ function normalise(raw: any): DashboardData {
       unassigned:       Number(raw?.kpis?.unassigned ?? 0),
       overdueSla:       Number(raw?.kpis?.overdueSla ?? 0),
       resolvedThisWeek: Number(raw?.kpis?.resolvedThisWeek ?? 0),
+      totalTags:Number(raw?.kpis?.totalTags ?? 0),
+      totalUsers:Number(raw?.kpis?.totalUsers ?? 0),
+      totalTeams:Number(raw?.kpis?.totalTeams ?? 0)
+
     },
     needsAttention: Array.isArray(raw?.needsAttention)
       ? raw.needsAttention.map((t: any) => ({
@@ -423,15 +431,18 @@ export default function DashboardPage() {
     }
   }, [])
 
-  const kpiCards = useMemo(
-    () => [
-      { label: 'Open tickets',       value: data.kpis.open,             icon: InboxIcon,        color: '#2F5DE0' },
-      { label: 'Unassigned',         value: data.kpis.unassigned,       icon: PersonOffIcon,    color: '#8A93A3' },
-      { label: 'Overdue (SLA)',      value: data.kpis.overdueSla,       icon: WarningAmberIcon, color: '#E24C4C' },
-      { label: 'Resolved this week', value: data.kpis.resolvedThisWeek, icon: CheckCircleIcon,  color: '#12B886' },
-    ],
-    [data.kpis]
-  )
+  // KPI strip: only 3 cards now (overdueSla removed)
+ const kpiCards = useMemo(
+  () => [
+    { label: 'Open tickets',       value: data.kpis.open,             icon: InboxIcon,       color: '#2F5DE0' },
+    { label: 'Unassigned',         value: data.kpis.unassigned,       icon: PersonOffIcon,   color: '#8A93A3' },
+    { label: 'Resolved this week', value: data.kpis.resolvedThisWeek, icon: CheckCircleIcon, color: '#12B886' },
+    { label: 'Total Users',        value: data.kpis.totalUsers,       icon: PeopleAltIcon,   color: '#7C3AED' },
+    { label: 'Total Teams',        value: data.kpis.totalTeams,       icon: GroupsIcon,      color: '#E8A63A' },
+    { label: 'Total Tags',         value: data.kpis.totalTags,        icon: LocalOfferIcon,  color: '#0891B2' },
+  ],
+  [data.kpis]
+)
 
   const priorityColorMap = useMemo(
     () => Object.fromEntries(Object.entries(PRIORITY_COLOR)) as Record<string, string>,
@@ -485,14 +496,13 @@ export default function DashboardPage() {
         </Alert>
       )}
 
-      {/* KPI strip */}
+      {/* KPI strip — now 3 cards in one row */}
       <Box
         sx={{
           display: 'grid',
           gridTemplateColumns: {
             xs: '1fr',
-            sm: 'repeat(2, 1fr)',
-            lg: 'repeat(4, 1fr)',
+            sm: 'repeat(3, 1fr)',
           },
           gap: 2,
           mt: 3,

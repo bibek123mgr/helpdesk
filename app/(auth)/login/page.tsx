@@ -18,9 +18,12 @@ const statusColor: Record<string, string> = {
   resolved: 'bg-secondary',
 }
 
+type LoginMode = 'user' | 'super_admin'
+
 export default function LoginPage() {
   const router = useRouter()
   const [orgs, setOrgs] = useState<Org[]>([])
+  const [mode, setMode] = useState<LoginMode>('user')
   const [orgId, setOrgId] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -34,15 +37,29 @@ export default function LoginPage() {
       .catch(() => setError('Could not load organizations'))
   }, [])
 
+  function switchMode(next: LoginMode) {
+    setMode(next)
+    setError('')
+    if (next === 'super_admin') {
+      setOrgId('')
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
     setLoading(true)
 
+    const isSuperAdmin = mode === 'super_admin'
+
+    const body = isSuperAdmin
+      ? { email, password, isSuperAdmin: true }
+      : { orgId, email, password, isSuperAdmin: false }
+
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ orgId, email, password }),
+      body: JSON.stringify(body),
     })
 
     setLoading(false)
@@ -91,24 +108,67 @@ export default function LoginPage() {
       <div className="flex items-center justify-center px-6 py-16">
         <div className="w-full max-w-sm">
           <h2 className="font-display text-2xl font-medium">Log in</h2>
-          <p className="mt-1.5 text-sm text-muted">Enter your workspace to continue.</p>
+          <p className="mt-1.5 text-sm text-muted">
+            {mode === 'super_admin'
+              ? 'Sign in to the platform administration console.'
+              : 'Enter your workspace to continue.'}
+          </p>
 
-          <form onSubmit={handleSubmit} className="mt-8 space-y-5">
-            <div>
-              <label className="label-text" htmlFor="org">Organization</label>
-              <select
-                id="org"
-                className="input-field"
-                value={orgId}
-                onChange={(e) => setOrgId(e.target.value)}
-                required
-              >
-                <option value="" disabled>Select your organization</option>
-                {orgs.map((org) => (
-                  <option key={org.id} value={org.id}>{org.name}</option>
-                ))}
-              </select>
-            </div>
+          {/* Role toggle */}
+          <div
+            role="tablist"
+            aria-label="Login type"
+            className="mt-6 grid grid-cols-2 gap-1 rounded-lg border border-border bg-surface p-1"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'user'}
+              onClick={() => switchMode('user')}
+              className={
+                mode === 'user'
+                  ? 'rounded-md bg-white px-3 py-2 text-sm font-medium text-ink shadow-sm'
+                  : 'rounded-md px-3 py-2 text-sm font-medium text-muted hover:text-ink'
+              }
+            >
+              User
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'super_admin'}
+              onClick={() => switchMode('super_admin')}
+              className={
+                mode === 'super_admin'
+                  ? 'rounded-md bg-white px-3 py-2 text-sm font-medium text-ink shadow-sm'
+                  : 'rounded-md px-3 py-2 text-sm font-medium text-muted hover:text-ink'
+              }
+            >
+              Super Admin
+            </button>
+          </div>
+
+          <form onSubmit={handleSubmit} className="mt-6 space-y-5">
+            {mode === 'user' && (
+              <div>
+                <label className="label-text" htmlFor="org">Organization</label>
+                <select
+                  id="org"
+                  className="input-field"
+                  value={orgId}
+                  onChange={(e) => setOrgId(e.target.value)}
+                  required
+                >
+                  <option value="" disabled>Select your organization</option>
+                  {orgs.map((org) => (
+                    <option key={org.id} value={org.id}>{org.name}</option>
+                  ))}
+                </select>
+                <p className="mt-1.5 text-xs text-muted">
+                  Applies to org admins, agents, and end users.
+                </p>
+              </div>
+            )}
 
             <div>
               <label className="label-text" htmlFor="email">Email</label>
@@ -143,16 +203,22 @@ export default function LoginPage() {
             )}
 
             <button type="submit" className="btn-primary" disabled={loading}>
-              {loading ? 'Logging in…' : 'Log in'}
+              {loading
+                ? 'Logging in…'
+                : mode === 'super_admin'
+                  ? 'Log in as Super Admin'
+                  : 'Log in'}
             </button>
           </form>
 
-          <p className="mt-6 text-center text-sm text-muted">
-            Setting up a new organization?{' '}
-            <a href="/register" className="font-medium text-primary hover:text-primary-hover">
-              Register here
-            </a>
-          </p>
+          {mode === 'user' && (
+            <p className="mt-6 text-center text-sm text-muted">
+              Setting up a new organization?{' '}
+              <a href="/register" className="font-medium text-primary hover:text-primary-hover">
+                Register here
+              </a>
+            </p>
+          )}
         </div>
       </div>
     </div>

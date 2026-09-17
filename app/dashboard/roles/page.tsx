@@ -9,6 +9,7 @@ import {
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import { MODULES, ACTIONS, PermissionMap, ModuleName, Action } from '@/lib/permissions'
+import { useUser } from '@/lib/user-context'
 
 type Role = { id: number; role: string; permissions: PermissionMap | null }
 
@@ -31,6 +32,16 @@ const ACTION_LABEL: Record<Action, string> = {
 }
 
 export default function RolesPage() {
+  const { can,isSuperAdmin } = useUser()
+
+  // ---------- Permissions ----------
+  const canView   = isSuperAdmin || can('roles', 'view')
+  const canCreate = isSuperAdmin || can('roles', 'create')
+  const canUpdate = isSuperAdmin || can('roles', 'update')
+  const canDelete = isSuperAdmin || can('roles', 'delete')
+
+  // ---------- State ----------
+
   const [roles, setRoles] = useState<Role[]>([])
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [permissions, setPermissions] = useState<PermissionMap>({})
@@ -45,6 +56,10 @@ export default function RolesPage() {
   const [creating, setCreating] = useState(false)
 
   useEffect(() => {
+    if (!canView) {
+      setLoading(false)
+      return
+    }
     fetch('/api/roles')
       .then((res) => res.json())
       .then((data: Role[]) => {
@@ -60,7 +75,8 @@ export default function RolesPage() {
         setToast({ open: true, message: 'Could not load roles', severity: 'error' })
         setLoading(false)
       })
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canView])
 
   function selectRole(id: number) {
     const role = roles.find((r) => r.id === id)
@@ -70,6 +86,7 @@ export default function RolesPage() {
   }
 
   function toggle(mod: ModuleName, action: Action) {
+    if (!canUpdate) return
     setPermissions((prev) => ({ ...prev, [mod]: { ...prev[mod], [action]: !prev[mod]?.[action] } }))
   }
 
@@ -77,7 +94,7 @@ export default function RolesPage() {
   const selectedRole = roles.find((r) => r.id === selectedId)
 
   async function save() {
-    if (!selectedId) return
+    if (!selectedId || !canUpdate) return
     setSaving(true)
     try {
       const res = await fetch(`/api/roles/${selectedId}`, {
@@ -97,8 +114,8 @@ export default function RolesPage() {
   }
 
   async function handleCreateRole() {
-    if (!newRoleName.trim()) return
-    
+    if (!newRoleName.trim() || !canCreate) return
+
     setCreating(true)
     try {
       const res = await fetch('/api/roles', {
@@ -106,7 +123,7 @@ export default function RolesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role: newRoleName.trim() }),
       })
-      
+
       if (res.ok) {
         const created: Role = await res.json()
         setRoles((prev) => [...prev, created])
@@ -124,6 +141,7 @@ export default function RolesPage() {
   }
 
   function handleOpenDialog() {
+    if (!canCreate) return
     setNewRoleName('')
     setDialogOpen(true)
   }
@@ -132,6 +150,17 @@ export default function RolesPage() {
     setDialogOpen(false)
     setNewRoleName('')
     setCreating(false)
+  }
+
+  // ---------- No-view fallback ----------
+  if (!canView) {
+    return (
+      <Box sx={{ p: 5, textAlign: 'center' }}>
+        <Typography variant="h6" color="text.secondary">
+          You don't have permission to view roles.
+        </Typography>
+      </Box>
+    )
   }
 
   return (
@@ -160,14 +189,16 @@ export default function RolesPage() {
               ))}
             </Select>
 
-            <Button 
-              size="small" 
-              startIcon={<AddIcon fontSize="small" />} 
-              onClick={handleOpenDialog}
-              variant="contained"
-            >
-              New role
-            </Button>
+            {canCreate && (
+              <Button
+                size="small"
+                startIcon={<AddIcon fontSize="small" />}
+                onClick={handleOpenDialog}
+                variant="contained"
+              >
+                New role
+              </Button>
+            )}
           </Box>
 
           {/* Permission matrix */}
@@ -191,6 +222,7 @@ export default function RolesPage() {
                           size="small"
                           checked={permissions[mod]?.[action] === true}
                           onChange={() => toggle(mod, action)}
+                          disabled={!canUpdate}
                         />
                       </TableCell>
                     ))}
@@ -200,23 +232,25 @@ export default function RolesPage() {
             </Table>
           )}
 
-          {/* Save bar */}
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mt: 2 }}>
-            {hasChanges && (
-              <Button size="small" color="inherit" onClick={() => setPermissions(original)}>
-                Discard
+          {/* Save bar — only relevant when the user can actually edit */}
+          {canUpdate && (
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mt: 2 }}>
+              {hasChanges && (
+                <Button size="small" color="inherit" onClick={() => setPermissions(original)}>
+                  Discard
+                </Button>
+              )}
+              <Button size="small" variant="contained" onClick={save} disabled={!hasChanges || saving}>
+                {saving ? 'Saving…' : 'Save'}
               </Button>
-            )}
-            <Button size="small" variant="contained" onClick={save} disabled={!hasChanges || saving}>
-              {saving ? 'Saving…' : 'Save'}
-            </Button>
-          </Box>
+            </Box>
+          )}
         </>
       )}
 
       {/* Add Role Dialog */}
-      <Dialog 
-        open={dialogOpen} 
+      <Dialog
+        open={dialogOpen}
         onClose={handleCloseDialog}
         maxWidth="xs"
         fullWidth
@@ -240,9 +274,9 @@ export default function RolesPage() {
           <Button onClick={handleCloseDialog} disabled={creating}>
             Cancel
           </Button>
-          <Button 
-            onClick={handleCreateRole} 
-            variant="contained" 
+          <Button
+            onClick={handleCreateRole}
+            variant="contained"
             disabled={!newRoleName.trim() || creating}
           >
             {creating ? 'Creating...' : 'Create Role'}

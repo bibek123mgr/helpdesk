@@ -72,7 +72,7 @@ export default function DashboardShell({ user, children }: { user: CurrentUser; 
     { label: t('team'), href: '/dashboard/team', icon: GroupIcon, module: 'team' },
     // { label: t('organization'), href: '/dashboard/organization', icon: BusinessIcon, module: 'organization' },
     { label: t('allOrganizations'), href: '/dashboard/organizations', icon: PublicIcon, module: 'super_admin_only' },
-    { label: t('roles'), href: '/dashboard/roles', icon: AdminPanelSettingsIcon, module: 'roles' },
+    { label: t('roles'), href: '/dashboard/roles', icon: AdminPanelSettingsIcon, module: 'super_admin_only' },
   ]
 
   const permissions = user.role?.permissions ?? null
@@ -183,7 +183,7 @@ export default function DashboardShell({ user, children }: { user: CurrentUser; 
                 </IconButton>
               )}
               <Box>
-                <Typography variant="body2" sx={{ fontWeight: 500 }}>{user.organization.name}</Typography>
+                <Typography variant="body2" sx={{ fontWeight: 500 }}>{user.organization.name ?? 'Platform Administration'}</Typography>
                 <Typography variant="caption" color="text.secondary">{roleLabel[user.role.role] ?? user.role.role}</Typography>
               </Box>
             </Box>
